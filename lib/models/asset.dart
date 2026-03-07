@@ -163,6 +163,117 @@ class Asset {
     return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate)';
   }
 
+  /// 解析预计使用天数，支持自然语言
+  /// 支持格式：
+  /// - 纯数字：默认为天数
+  /// - "1 年 6 个月"
+  /// - "3 年"
+  /// - "6 个月"
+  /// - "100 天"
+  /// - "1 年 6 个月 10 天"
+  static int parseExpectedDays(String input) {
+    if (input.isEmpty) return 0;
+    
+    final trimmed = input.trim();
+    
+    // 尝试纯数字（天数）
+    final pureNumberPattern = RegExp(r'^(\d+)$');
+    final pureMatch = pureNumberPattern.firstMatch(trimmed);
+    if (pureMatch != null) {
+      return int.parse(pureMatch.group(1)!);
+    }
+    
+    // 尝试解析自然语言格式
+    final yearPattern = RegExp(r'(\d+) 年');
+    final monthPattern = RegExp(r'(\d+) 个？月');
+    final dayPattern = RegExp(r'(\d+) 天');
+    
+    final yearMatch = yearPattern.firstMatch(trimmed);
+    final monthMatch = monthPattern.firstMatch(trimmed);
+    final dayMatch = dayPattern.firstMatch(trimmed);
+    
+    int totalDays = 0;
+    
+    if (yearMatch != null) {
+      totalDays += int.parse(yearMatch.group(1)!) * 365;
+    }
+    
+    if (monthMatch != null) {
+      totalDays += int.parse(monthMatch.group(1)!) * 30;
+    }
+    
+    if (dayMatch != null) {
+      totalDays += int.parse(dayMatch.group(1)!);
+    }
+    
+    // 如果没有匹配到任何有效格式，返回 0
+    if (totalDays == 0 && yearMatch == null && monthMatch == null && dayMatch == null) {
+      return 0;
+    }
+    
+    return totalDays;
+  }
+
+  /// 解析自定义日期格式，支持手写输入
+  /// 支持格式：
+  /// - "2026 年 4 月 5 日"
+  /// - "2025.2.3"
+  /// - "2026-01-01"
+  /// - "2026/01/01"
+  /// - "2026-01-01 12:30:00"
+  static DateTime? parseCustomDate(String input) {
+    if (input.isEmpty) return null;
+    
+    final trimmed = input.trim();
+    
+    // 尝试解析中文格式 "2026 年 4 月 5 日"
+    final chinesePattern = RegExp(r'(\d{4}) 年 (\d{1,2}) 月 (\d{1,2}) 日');
+    final chineseMatch = chinesePattern.firstMatch(trimmed);
+    if (chineseMatch != null) {
+      final year = int.parse(chineseMatch.group(1)!);
+      final month = int.parse(chineseMatch.group(2)!);
+      final day = int.parse(chineseMatch.group(3)!);
+      return DateTime(year, month, day);
+    }
+    
+    // 尝试解析点分隔格式 "2025.2.3"
+    final dotPattern = RegExp(r'(\d{4})\.(\d{1,2})\.(\d{1,2})');
+    final dotMatch = dotPattern.firstMatch(trimmed);
+    if (dotMatch != null) {
+      final year = int.parse(dotMatch.group(1)!);
+      final month = int.parse(dotMatch.group(2)!);
+      final day = int.parse(dotMatch.group(3)!);
+      return DateTime(year, month, day);
+    }
+    
+    // 尝试解析短横线格式 "2026-01-01"
+    final dashPattern = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})');
+    final dashMatch = dashPattern.firstMatch(trimmed);
+    if (dashMatch != null) {
+      final year = int.parse(dashMatch.group(1)!);
+      final month = int.parse(dashMatch.group(2)!);
+      final day = int.parse(dashMatch.group(3)!);
+      return DateTime(year, month, day);
+    }
+    
+    // 尝试解析斜杠格式 "2026/01/01"
+    final slashPattern = RegExp(r'(\d{4})/(\d{1,2})/(\d{1,2})');
+    final slashMatch = slashPattern.firstMatch(trimmed);
+    if (slashMatch != null) {
+      final year = int.parse(slashMatch.group(1)!);
+      final month = int.parse(slashMatch.group(2)!);
+      final day = int.parse(slashMatch.group(3)!);
+      return DateTime(year, month, day);
+    }
+    
+    // 尝试标准 DateTime 解析
+    try {
+      return DateTime.parse(trimmed);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 通用日期解析函数
   static DateTime _parseDate(dynamic dateValue) {
     if (dateValue is DateTime) return dateValue;

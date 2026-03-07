@@ -93,32 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 选择购买日期
-  Future<void> _selectPurchaseDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _purchaseDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) {
-      setState(() {
-        _purchaseDate = picked;
-        _updatePurchaseDateText();
-      });
-    }
-  }
-
-  /// 解析购买日期（支持手写输入）
-  void _parsePurchaseDateFromInput(String input) {
-    final parsed = DateParser.parsePurchaseDate(input);
-    if (parsed != null) {
-      setState(() {
-        _purchaseDate = parsed;
-      });
-    }
-  }
-
   /// 添加资产到 Supabase
   Future<void> _addAsset() async {
     if (!_formKey.currentState!.validate()) {
@@ -283,10 +257,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final priceController = TextEditingController(text: asset.purchasePrice.toString());
     final expectedDaysController = TextEditingController(text: asset.expectedLifespanDays.toString());
     final purchaseDateController = TextEditingController(
-      text: '${asset.purchaseDate.year}-${asset.purchaseDate.month.toString().padLeft(2, '0')}-${asset.purchaseDate.day.toString().padLeft(2, '0')}',
+      text: '${asset.purchaseDate.year}.${asset.purchaseDate.month}.${asset.purchaseDate.day}',
     );
     DateTime purchaseDate = asset.purchaseDate;
-    int expectedDays = asset.expectedLifespanDays;
+    String? expectedDaysError;
+    String? purchaseDateError;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -303,6 +278,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   decoration: const InputDecoration(
                     labelText: '资产名称',
                     border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -312,48 +289,51 @@ class _HomeScreenState extends State<HomeScreen> {
                     labelText: '购入价格',
                     prefixText: '¥ ',
                     border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: expectedDaysController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: '预计使用时长',
                     hintText: '例如：5 年、1 年 6 个月、1825 天',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    errorText: expectedDaysError,
                   ),
                   onChanged: (value) {
-                    final parsed = DateParser.parseLifespan(value);
-                    if (parsed != null && parsed > 0) {
-                      expectedDays = parsed;
-                    }
+                    final parsed = Asset.parseExpectedDays(value);
+                    setDialogState(() {
+                      expectedDaysError = parsed > 0 ? null : '请输入有效的预计使用时长';
+                    });
                   },
                 ),
                 const SizedBox(height: 12),
-                InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: purchaseDate,
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime.now(),
-                    );
-                    if (picked != null) {
-                      setDialogState(() {
-                        purchaseDate = picked;
-                        purchaseDateController.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-                      });
-                    }
-                  },
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: '购买日期',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.calendar_today),
-                    ),
-                    child: Text(purchaseDateController.text),
+                TextField(
+                  controller: purchaseDateController,
+                  decoration: InputDecoration(
+                    labelText: '购买日期',
+                    hintText: '例如：2026.4.5 或 2026 年 1 月 1 日',
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    errorText: purchaseDateError,
                   ),
+                  onChanged: (value) {
+                    final parsed = Asset.parseCustomDate(value);
+                    setDialogState(() {
+                      if (parsed != null) {
+                        purchaseDate = parsed;
+                        purchaseDateError = null;
+                      } else {
+                        purchaseDateError = '日期格式无效';
+                      }
+                    });
+                  },
                 ),
               ],
             ),
@@ -385,11 +365,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                   return;
                 }
-                final days = DateParser.parseLifespan(expectedDaysController.text);
-                if (days == null || days <= 0) {
+                final days = Asset.parseExpectedDays(expectedDaysController.text);
+                if (days <= 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('请输入有效的预计使用时长'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                final parsedDate = Asset.parseCustomDate(purchaseDateController.text);
+                if (parsedDate == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('请输入有效的购买日期'),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -406,12 +396,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirmed == true) {
       try {
-        final parsedDays = DateParser.parseLifespan(expectedDaysController.text) ?? expectedDays;
+        final parsedDays = Asset.parseExpectedDays(expectedDaysController.text);
+        final parsedDate = Asset.parseCustomDate(purchaseDateController.text) ?? purchaseDate;
         final updatedAsset = asset.copyWith(
           assetName: nameController.text.trim(),
           purchasePrice: double.parse(priceController.text),
           expectedLifespanDays: parsedDays,
-          purchaseDate: purchaseDate,
+          purchaseDate: parsedDate,
         );
 
         await Supabase.instance.client
@@ -618,6 +609,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           hintText: '例如：Mac Mini M4',
                           prefixIcon: Icon(Icons.inventory_2_outlined),
                           border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
@@ -636,6 +629,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           prefixIcon: Icon(Icons.attach_money),
                           prefixText: '¥ ',
                           border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         validator: (value) {
@@ -655,13 +650,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: _expectedDaysController,
                         decoration: const InputDecoration(
                           labelText: '预计使用时长',
-                          hintText: '例如：5年、1年6个月、1825天',
+                          hintText: '例如：5 年、1 年 6 个月、1825 天',
                           prefixIcon: Icon(Icons.timelapse),
                           border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return '请输入预计使用时长';
+                          }
+                          final days = Asset.parseExpectedDays(value);
+                          if (days <= 0) {
+                            return '请输入有效的预计使用时长';
                           }
                           return null;
                         },
@@ -670,19 +671,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       // 购买日期输入框（支持手写输入）
                       TextFormField(
                         controller: _purchaseDateController,
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           labelText: '购买日期',
-                          hintText: '例如：2026-01-01 或 2026 年 1 月 1 日',
-                          prefixIcon: const Icon(Icons.event),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.calendar_today),
-                            onPressed: _selectPurchaseDate,
-                          ),
-                          border: const OutlineInputBorder(),
+                          hintText: '例如：2026.4.5 或 2026 年 1 月 1 日',
+                          prefixIcon: Icon(Icons.event),
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
-                        onChanged: _parsePurchaseDateFromInput,
-                        onTap: _selectPurchaseDate,
-                        readOnly: true,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return '请输入购买日期';
+                          }
+                          final parsed = Asset.parseCustomDate(value);
+                          if (parsed == null) {
+                            return '日期格式无效';
+                          }
+                          return null;
+                        },
+                        onSaved: (value) {
+                          final parsed = Asset.parseCustomDate(value ?? '');
+                          if (parsed != null) {
+                            setState(() {
+                              _purchaseDate = parsed;
+                            });
+                          }
+                        },
                       ),
                       const SizedBox(height: 20),
                       // 添加按钮
