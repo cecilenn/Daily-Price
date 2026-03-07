@@ -27,7 +27,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // 资产列表
   List<Asset> _assets = [];
   bool _isLoading = true;       // 首次加载
-  bool _isRefreshing = false;   // 刷新中（不影响已有数据展示）
   String? _errorMessage;
 
   @override
@@ -52,16 +51,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 从 Supabase 加载资产数据
-  /// [isRefresh] 为 true 时表示下拉刷新，不清空已有数据，实现无缝刷新
+  /// [isRefresh] 为 true 时表示下拉刷新/后台刷新，不清空已有数据，实现无缝刷新
   Future<void> _loadAssets({bool isRefresh = false}) async {
-    // 如果是刷新操作且已有数据，只显示刷新状态，不清空列表
-    if (isRefresh && _assets.isNotEmpty) {
-      setState(() {
-        _isRefreshing = true;
-        _errorMessage = null;
-      });
-    } else {
-      // 首次加载或无数据时，显示全屏加载
+    // 如果是刷新操作且已有数据，静默刷新，不清空列表，不显示全屏加载
+    // 仅在首次加载（_assets 为空）时显示全屏加载圈
+    if (_assets.isEmpty) {
       setState(() {
         _isLoading = true;
         _errorMessage = null;
@@ -84,21 +78,21 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
-      setState(() {
-        _assets = (response as List).map((item) => Asset.fromJson(item)).toList();
-        _isLoading = false;
-        _isRefreshing = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _isRefreshing = false;
-        // 只在首次加载或无数据时设置错误信息
-        if (_assets.isEmpty) {
-          _errorMessage = '加载数据失败：$e';
-        }
-      });
       if (mounted) {
+        setState(() {
+          _assets = (response as List).map((item) => Asset.fromJson(item)).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          // 只在首次加载或无数据时设置错误信息
+          if (_assets.isEmpty) {
+            _errorMessage = '加载数据失败：$e';
+          }
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('加载数据失败：$e'),
@@ -196,7 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
           .update({'is_pinned': !asset.isPinned})
           .eq('id', asset.id!);
       
-      await _loadAssets();
+      await _loadAssets(isRefresh: true);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -246,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .delete()
             .eq('id', asset.id!);
         
-        await _loadAssets();
+        await _loadAssets(isRefresh: true);
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -429,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .update(updatedAsset.toJson())
             .eq('id', asset.id!);
         
-        await _loadAssets();
+        await _loadAssets(isRefresh: true);
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -544,7 +538,7 @@ class _HomeScreenState extends State<HomeScreen> {
             })
             .eq('id', asset.id!);
         
-        await _loadAssets();
+        await _loadAssets(isRefresh: true);
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -615,7 +609,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadAssets,
+            onPressed: () => _loadAssets(isRefresh: true),
             tooltip: '刷新数据',
           ),
           IconButton(
@@ -631,247 +625,235 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       // Web 端宽度限制：在宽屏上限制最大宽度为 600，居中显示
-      body: Stack(
-        children: [
-          // 主体内容
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 600),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // 添加资产表单卡片
-                    Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-                      elevation: 1,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                '添加资产',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
+      body: RefreshIndicator(
+        onRefresh: () => _loadAssets(isRefresh: true),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 添加资产表单卡片
+                  Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+                    elevation: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '添加资产',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                               ),
-                              const SizedBox(height: 10),
-                              // 资产名称输入框
-                              TextFormField(
-                                controller: _nameController,
-                                decoration: const InputDecoration(
-                                  labelText: '资产名称',
-                                  hintText: '例如：Mac Mini M4',
-                                  prefixIcon: Icon(Icons.inventory_2_outlined),
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return '请输入资产名称';
-                                  }
-                                  return null;
-                                },
+                            ),
+                            const SizedBox(height: 10),
+                            // 资产名称输入框
+                            TextFormField(
+                              controller: _nameController,
+                              decoration: const InputDecoration(
+                                labelText: '资产名称',
+                                hintText: '例如：Mac Mini M4',
+                                prefixIcon: Icon(Icons.inventory_2_outlined),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               ),
-                              const SizedBox(height: 10),
-                              // 价格输入框
-                              TextFormField(
-                                controller: _priceController,
-                                decoration: const InputDecoration(
-                                  labelText: '购入价格',
-                                  hintText: '例如：4499',
-                                  prefixIcon: Icon(Icons.attach_money),
-                                  prefixText: '¥ ',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return '请输入价格';
-                                  }
-                                  final price = double.tryParse(value);
-                                  if (price == null || price <= 0) {
-                                    return '请输入有效的价格';
-                                  }
-                                  return null;
-                                },
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return '请输入资产名称';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            // 价格输入框
+                            TextFormField(
+                              controller: _priceController,
+                              decoration: const InputDecoration(
+                                labelText: '购入价格',
+                                hintText: '例如：4499',
+                                prefixIcon: Icon(Icons.attach_money),
+                                prefixText: '¥ ',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               ),
-                              const SizedBox(height: 10),
-                              // 预计使用天数输入框（支持自然语言）
-                              TextFormField(
-                                controller: _expectedDaysController,
-                                decoration: const InputDecoration(
-                                  labelText: '预计使用时长',
-                                  hintText: '例如：5 年、1 年 6 个月、1825 天',
-                                  prefixIcon: Icon(Icons.timelapse),
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return '请输入预计使用时长';
-                                  }
-                                  final days = Asset.parseExpectedDays(value);
-                                  if (days <= 0) {
-                                    return '请输入有效的预计使用时长';
-                                  }
-                                  return null;
-                                },
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return '请输入价格';
+                                }
+                                final price = double.tryParse(value);
+                                if (price == null || price <= 0) {
+                                  return '请输入有效的价格';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            // 预计使用天数输入框（支持自然语言）
+                            TextFormField(
+                              controller: _expectedDaysController,
+                              decoration: const InputDecoration(
+                                labelText: '预计使用时长',
+                                hintText: '例如：5 年、1 年 6 个月、1825 天',
+                                prefixIcon: Icon(Icons.timelapse),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               ),
-                              const SizedBox(height: 10),
-                              // 购买日期输入框（支持手写输入）
-                              TextFormField(
-                                controller: _purchaseDateController,
-                                decoration: const InputDecoration(
-                                  labelText: '购买日期',
-                                  hintText: '例如：2026.4.5 或 2026年1月1日',
-                                  prefixIcon: Icon(Icons.event),
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return '请输入购买日期';
-                                  }
-                                  final parsed = Asset.parseCustomDate(value.trim());
-                                  if (parsed == null) {
-                                    return '日期格式错误，请使用如 2026-1-1、2026.1.1 或 2026年1月1日 格式';
-                                  }
-                                  return null;
-                                },
-                                onSaved: (value) {
-                                  // validator 已经验证过，这里直接解析赋值
-                                  // 如果解析失败，不允许静默通过，应该抛出异常
-                                  final parsed = Asset.parseCustomDate(value?.trim() ?? '');
-                                  if (parsed == null) {
-                                    throw StateError('日期解析失败，这不应该发生，因为 validator 已经验证过了');
-                                  }
-                                  _purchaseDate = parsed;
-                                },
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return '请输入预计使用时长';
+                                }
+                                final days = Asset.parseExpectedDays(value);
+                                if (days <= 0) {
+                                  return '请输入有效的预计使用时长';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            // 购买日期输入框（支持手写输入）
+                            TextFormField(
+                              controller: _purchaseDateController,
+                              decoration: const InputDecoration(
+                                labelText: '购买日期',
+                                hintText: '例如：2026.4.5 或 2026年1月1日',
+                                prefixIcon: Icon(Icons.event),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               ),
-                              const SizedBox(height: 12),
-                              // 添加按钮
-                              SizedBox(
-                                height: 40,
-                                child: ElevatedButton(
-                                  onPressed: _addAsset,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2196F3),
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    '添加资产',
-                                    style: TextStyle(fontSize: 15),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return '请输入购买日期';
+                                }
+                                final parsed = Asset.parseCustomDate(value.trim());
+                                if (parsed == null) {
+                                  return '日期格式错误，请使用如 2026-1-1、2026.1.1 或 2026年1月1日 格式';
+                                }
+                                return null;
+                              },
+                              onSaved: (value) {
+                                // validator 已经验证过，这里直接解析赋值
+                                // 如果解析失败，不允许静默通过，应该抛出异常
+                                final parsed = Asset.parseCustomDate(value?.trim() ?? '');
+                                if (parsed == null) {
+                                  throw StateError('日期解析失败，这不应该发生，因为 validator 已经验证过了');
+                                }
+                                _purchaseDate = parsed;
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            // 添加按钮
+                            SizedBox(
+                              height: 40,
+                              child: ElevatedButton(
+                                onPressed: _addAsset,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF2196F3),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
                                 ),
+                                child: const Text(
+                                  '添加资产',
+                                  style: TextStyle(fontSize: 15),
+                                ),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    // 资产列表标题
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          '资产列表',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  ),
+                  const SizedBox(height: 12),
+                  // 资产列表标题
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '资产列表',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                         ),
-                        Text(
-                          '共 ${_assets.length} 项',
-                          style: const TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                      Text(
+                        '共 ${_assets.length} 项',
+                        style: const TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // 加载状态（仅首次加载时显示全屏加载）
+                  if (_isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  // 错误状态
+                  else if (_errorMessage != null)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            Icon(Icons.error_outline, size: 40, color: Colors.red.shade300),
+                            const SizedBox(height: 10),
+                            Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                            const SizedBox(height: 10),
+                            ElevatedButton.icon(
+                              onPressed: _loadAssets,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重试'),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // 加载状态
-                    if (_isLoading)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: CircularProgressIndicator(),
+                      ),
+                    )
+                  // 空状态
+                  else if (_assets.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            Icon(Icons.inbox_outlined, size: 40, color: Colors.grey.shade300),
+                            const SizedBox(height: 10),
+                            Text(
+                              '暂无资产数据',
+                              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '点击上方表单添加您的第一个资产',
+                              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                            ),
+                          ],
                         ),
-                      )
-                    // 错误状态
-                    else if (_errorMessage != null)
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              Icon(Icons.error_outline, size: 40, color: Colors.red.shade300),
-                              const SizedBox(height: 10),
-                              Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-                              const SizedBox(height: 10),
-                              ElevatedButton.icon(
-                                onPressed: _loadAssets,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('重试'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    // 空状态
-                    else if (_assets.isEmpty)
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              Icon(Icons.inbox_outlined, size: 40, color: Colors.grey.shade300),
-                              const SizedBox(height: 10),
-                              Text(
-                                '暂无资产数据',
-                                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '点击上方表单添加您的第一个资产',
-                                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    // 资产列表
-                    else
-                      ..._assets.map((asset) => _buildAssetCard(asset)),
-                  ],
-                ),
+                      ),
+                    )
+                  // 资产列表
+                  else
+                    ..._assets.map((asset) => _buildAssetCard(asset)),
+                ],
               ),
             ),
           ),
-          // 顶部刷新进度条（仅在刷新时显示）
-          if (_isRefreshing)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: LinearProgressIndicator(
-                backgroundColor: Colors.transparent,
-                valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }

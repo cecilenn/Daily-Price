@@ -81,6 +81,13 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       
       if (response.user != null && mounted) {
+        // 检查是否为假成功（Supabase 防枚举机制）
+        // 当 identities 为空列表时，说明该邮箱已被注册
+        if (response.user!.identities != null && response.user!.identities!.isEmpty) {
+          _showError('该邮箱已被注册，请直接登录');
+          return;
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('注册成功，请前往邮箱点击验证链接'),
