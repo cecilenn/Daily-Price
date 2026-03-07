@@ -317,20 +317,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: purchaseDateController,
                   decoration: InputDecoration(
                     labelText: '购买日期',
-                    hintText: '例如：2026.4.5 或 2026 年 1 月 1 日',
+                    hintText: '例如：2026.4.5 或 2026年1月1日',
                     border: const OutlineInputBorder(),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     errorText: purchaseDateError,
                   ),
                   onChanged: (value) {
-                    final parsed = Asset.parseCustomDate(value);
+                    final parsed = Asset.parseCustomDate(value.trim());
                     setDialogState(() {
                       if (parsed != null) {
                         purchaseDate = parsed;
                         purchaseDateError = null;
                       } else {
-                        purchaseDateError = '日期格式无效';
+                        purchaseDateError = '日期格式错误，请使用如 2026-1-1、2026.1.1 或 2026年1月1日 格式';
                       }
                     });
                   },
@@ -673,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: _purchaseDateController,
                         decoration: const InputDecoration(
                           labelText: '购买日期',
-                          hintText: '例如：2026.4.5 或 2026 年 1 月 1 日',
+                          hintText: '例如：2026.4.5 或 2026年1月1日',
                           prefixIcon: Icon(Icons.event),
                           border: OutlineInputBorder(),
                           isDense: true,
@@ -683,19 +683,20 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (value == null || value.isEmpty) {
                             return '请输入购买日期';
                           }
-                          final parsed = Asset.parseCustomDate(value);
+                          final parsed = Asset.parseCustomDate(value.trim());
                           if (parsed == null) {
-                            return '日期格式无效';
+                            return '日期格式错误，请使用如 2026-1-1、2026.1.1 或 2026年1月1日 格式';
                           }
                           return null;
                         },
                         onSaved: (value) {
-                          final parsed = Asset.parseCustomDate(value ?? '');
-                          if (parsed != null) {
-                            setState(() {
-                              _purchaseDate = parsed;
-                            });
+                          // validator 已经验证过，这里直接解析赋值
+                          // 如果解析失败，不允许静默通过，应该抛出异常
+                          final parsed = Asset.parseCustomDate(value?.trim() ?? '');
+                          if (parsed == null) {
+                            throw StateError('日期解析失败，这不应该发生，因为 validator 已经验证过了');
                           }
+                          _purchaseDate = parsed;
                         },
                       ),
                       const SizedBox(height: 20),

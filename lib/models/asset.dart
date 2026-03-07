@@ -166,48 +166,55 @@ class Asset {
   /// 解析预计使用天数，支持自然语言
   /// 支持格式：
   /// - 纯数字：默认为天数
-  /// - "1 年 6 个月"
-  /// - "3 年"
-  /// - "6 个月"
-  /// - "100 天"
-  /// - "1 年 6 个月 10 天"
+  /// - "5年" 或 "5 年"
+  /// - "1年6个月" 或 "1 年 6 个月"
+  /// - "6个月" 或 "6 个月"
+  /// - "100天" 或 "100 天"
+  /// - "1年6个月10天" 或 "1 年 6 个月 10 天"
   static int parseExpectedDays(String input) {
     if (input.isEmpty) return 0;
     
     final trimmed = input.trim();
     
-    // 尝试纯数字（天数）
-    final pureNumberPattern = RegExp(r'^(\d+)$');
+    // 尝试纯数字（天数）- 允许前后有空白
+    final pureNumberPattern = RegExp(r'^\s*(\d+)\s*$');
     final pureMatch = pureNumberPattern.firstMatch(trimmed);
     if (pureMatch != null) {
       return int.parse(pureMatch.group(1)!);
     }
     
-    // 尝试解析自然语言格式
-    final yearPattern = RegExp(r'(\d+) 年');
-    final monthPattern = RegExp(r'(\d+) 个？月');
-    final dayPattern = RegExp(r'(\d+) 天');
+    // 使用正则表达式精确提取数字，支持空格可选
+    // 年：匹配 "数字 + 可选空格 + 年"
+    final yearPattern = RegExp(r'(\d+)\s*年');
+    // 月：匹配 "数字 + 可选空格 + 个 + 可选空格 + 月" 或 "数字 + 可选空格 + 月"
+    final monthPattern = RegExp(r'(\d+)\s*(?:个\s*)?月');
+    // 天：匹配 "数字 + 可选空格 + 天"
+    final dayPattern = RegExp(r'(\d+)\s*天');
     
     final yearMatch = yearPattern.firstMatch(trimmed);
     final monthMatch = monthPattern.firstMatch(trimmed);
     final dayMatch = dayPattern.firstMatch(trimmed);
     
     int totalDays = 0;
+    bool hasMatch = false;
     
     if (yearMatch != null) {
       totalDays += int.parse(yearMatch.group(1)!) * 365;
+      hasMatch = true;
     }
     
     if (monthMatch != null) {
       totalDays += int.parse(monthMatch.group(1)!) * 30;
+      hasMatch = true;
     }
     
     if (dayMatch != null) {
       totalDays += int.parse(dayMatch.group(1)!);
+      hasMatch = true;
     }
     
     // 如果没有匹配到任何有效格式，返回 0
-    if (totalDays == 0 && yearMatch == null && monthMatch == null && dayMatch == null) {
+    if (!hasMatch) {
       return 0;
     }
     
@@ -216,7 +223,7 @@ class Asset {
 
   /// 解析自定义日期格式，支持手写输入
   /// 支持格式：
-  /// - "2026 年 4 月 5 日"
+  /// - "2026年2月2日" 或 "2026 年 4 月 5 日"
   /// - "2025.2.3"
   /// - "2026-01-01"
   /// - "2026/01/01"
@@ -226,44 +233,63 @@ class Asset {
     
     final trimmed = input.trim();
     
-    // 尝试解析中文格式 "2026 年 4 月 5 日"
-    final chinesePattern = RegExp(r'(\d{4}) 年 (\d{1,2}) 月 (\d{1,2}) 日');
-    final chineseMatch = chinesePattern.firstMatch(trimmed);
-    if (chineseMatch != null) {
-      final year = int.parse(chineseMatch.group(1)!);
-      final month = int.parse(chineseMatch.group(2)!);
-      final day = int.parse(chineseMatch.group(3)!);
-      return DateTime(year, month, day);
+    // 预处理：将中文日期格式转换为标准格式
+    // 例如："2026年2月2日" -> "2026-2-2"
+    String normalized = trimmed;
+    
+    // 检查是否包含中文日期字符
+    if (normalized.contains('年') || normalized.contains('月') || normalized.contains('日')) {
+      // 移除所有空白字符
+      normalized = normalized.replaceAll(RegExp(r'\s+'), '');
+      // 将 '年' 和 '月' 替换为 '-'
+      normalized = normalized.replaceAll('年', '-');
+      normalized = normalized.replaceAll('月', '-');
+      // 将 '日' 去除
+      normalized = normalized.replaceAll('日', '');
+      // 移除末尾可能的多余 '-'
+      normalized = normalized.replaceAll(RegExp(r'-+$'), '');
+    }
+    
+    // 尝试解析短横线格式 "2026-2-2" 或 "2026-01-01"
+    final dashPattern = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$');
+    final dashMatch = dashPattern.firstMatch(normalized);
+    if (dashMatch != null) {
+      final year = int.parse(dashMatch.group(1)!);
+      final month = int.parse(dashMatch.group(2)!);
+      final day = int.parse(dashMatch.group(3)!);
+      try {
+        return DateTime(year, month, day);
+      } catch (_) {
+        return null;
+      }
     }
     
     // 尝试解析点分隔格式 "2025.2.3"
-    final dotPattern = RegExp(r'(\d{4})\.(\d{1,2})\.(\d{1,2})');
+    final dotPattern = RegExp(r'^(\d{4})\.(\d{1,2})\.(\d{1,2})$');
     final dotMatch = dotPattern.firstMatch(trimmed);
     if (dotMatch != null) {
       final year = int.parse(dotMatch.group(1)!);
       final month = int.parse(dotMatch.group(2)!);
       final day = int.parse(dotMatch.group(3)!);
-      return DateTime(year, month, day);
-    }
-    
-    // 尝试解析短横线格式 "2026-01-01"
-    final dashPattern = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})');
-    final dashMatch = dashPattern.firstMatch(trimmed);
-    if (dashMatch != null) {
-      final year = int.parse(dashMatch.group(1)!);
-      final month = int.parse(dashMatch.group(2)!);
-      final day = int.parse(dashMatch.group(3)!);
-      return DateTime(year, month, day);
+      try {
+        return DateTime(year, month, day);
+      } catch (_) {
+        return null;
+      }
     }
     
     // 尝试解析斜杠格式 "2026/01/01"
-    final slashPattern = RegExp(r'(\d{4})/(\d{1,2})/(\d{1,2})');
+    final slashPattern = RegExp(r'^(\d{4})/(\d{1,2})/(\d{1,2})$');
     final slashMatch = slashPattern.firstMatch(trimmed);
     if (slashMatch != null) {
       final year = int.parse(slashMatch.group(1)!);
       final month = int.parse(slashMatch.group(2)!);
       final day = int.parse(slashMatch.group(3)!);
-      return DateTime(year, month, day);
+      try {
+        return DateTime(year, month, day);
+      } catch (_) {
+        return null;
+      }
     }
     
     // 尝试标准 DateTime 解析
@@ -316,112 +342,69 @@ class Asset {
 class DateParser {
   /// 解析购买日期，支持多种格式
   /// 支持格式：
-  /// - "2026 年 4 月 5 日"
+  /// - "2026年2月2日" 或 "2026 年 4 月 5 日"
   /// - "2025.2.3"
   /// - "2026-01-01"
   /// - "2026/01/01"
   /// - "2026-01-01 12:30:00"
   static DateTime? parsePurchaseDate(String input) {
-    if (input.isEmpty) return null;
-    
-    final trimmed = input.trim();
-    
-    // 尝试解析中文格式 "2026 年 4 月 5 日"
-    final chinesePattern = RegExp(r'(\d{4}) 年 (\d{1,2}) 月 (\d{1,2}) 日');
-    final chineseMatch = chinesePattern.firstMatch(trimmed);
-    if (chineseMatch != null) {
-      final year = int.parse(chineseMatch.group(1)!);
-      final month = int.parse(chineseMatch.group(2)!);
-      final day = int.parse(chineseMatch.group(3)!);
-      return DateTime(year, month, day);
-    }
-    
-    // 尝试解析点分隔格式 "2025.2.3"
-    final dotPattern = RegExp(r'(\d{4})\.(\d{1,2})\.(\d{1,2})');
-    final dotMatch = dotPattern.firstMatch(trimmed);
-    if (dotMatch != null) {
-      final year = int.parse(dotMatch.group(1)!);
-      final month = int.parse(dotMatch.group(2)!);
-      final day = int.parse(dotMatch.group(3)!);
-      return DateTime(year, month, day);
-    }
-    
-    // 尝试解析短横线格式 "2026-01-01"
-    final dashPattern = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})');
-    final dashMatch = dashPattern.firstMatch(trimmed);
-    if (dashMatch != null) {
-      final year = int.parse(dashMatch.group(1)!);
-      final month = int.parse(dashMatch.group(2)!);
-      final day = int.parse(dashMatch.group(3)!);
-      return DateTime(year, month, day);
-    }
-    
-    // 尝试解析斜杠格式 "2026/01/01"
-    final slashPattern = RegExp(r'(\d{4})/(\d{1,2})/(\d{1,2})');
-    final slashMatch = slashPattern.firstMatch(trimmed);
-    if (slashMatch != null) {
-      final year = int.parse(slashMatch.group(1)!);
-      final month = int.parse(slashMatch.group(2)!);
-      final day = int.parse(slashMatch.group(3)!);
-      return DateTime(year, month, day);
-    }
-    
-    // 尝试标准 DateTime 解析
-    try {
-      return DateTime.parse(trimmed);
-    } catch (_) {
-      return null;
-    }
+    // 直接调用 Asset.parseCustomDate，保持逻辑一致
+    return Asset.parseCustomDate(input);
   }
   
   /// 解析预计使用时长，支持自然语言
   /// 支持格式：
   /// - 纯数字：默认为天数
-  /// - "1 年 6 个月"
-  /// - "3 年"
-  /// - "6 个月"
-  /// - "100 天"
-  /// - "1 年 6 个月 10 天"
+  /// - "5年" 或 "5 年"
+  /// - "1年6个月" 或 "1 年 6 个月"
+  /// - "6个月" 或 "6 个月"
+  /// - "100天" 或 "100 天"
+  /// - "1年6个月10天" 或 "1 年 6 个月 10 天"
   static int? parseLifespan(String input) {
     if (input.isEmpty) return null;
     
     final trimmed = input.trim();
     
-    // 尝试纯数字（天数）
-    final pureNumberPattern = RegExp(r'^(\d+)$');
+    // 尝试纯数字（天数）- 允许前后有空白
+    final pureNumberPattern = RegExp(r'^\s*(\d+)\s*$');
     final pureMatch = pureNumberPattern.firstMatch(trimmed);
     if (pureMatch != null) {
       return int.parse(pureMatch.group(1)!);
     }
     
-    // 尝试解析自然语言格式
-    final yearPattern = RegExp(r'(\d+) 年');
-    final monthPattern = RegExp(r'(\d+) 个？月');
-    final dayPattern = RegExp(r'(\d+) 天');
+    // 使用正则表达式精确提取数字，支持空格可选
+    // 年：匹配 "数字 + 可选空格 + 年"
+    final yearPattern = RegExp(r'(\d+)\s*年');
+    // 月：匹配 "数字 + 可选空格 + 个 + 可选空格 + 月" 或 "数字 + 可选空格 + 月"
+    final monthPattern = RegExp(r'(\d+)\s*(?:个\s*)?月');
+    // 天：匹配 "数字 + 可选空格 + 天"
+    final dayPattern = RegExp(r'(\d+)\s*天');
     
     final yearMatch = yearPattern.firstMatch(trimmed);
     final monthMatch = monthPattern.firstMatch(trimmed);
     final dayMatch = dayPattern.firstMatch(trimmed);
     
     int totalDays = 0;
+    bool hasMatch = false;
     
     if (yearMatch != null) {
       totalDays += int.parse(yearMatch.group(1)!) * 365;
+      hasMatch = true;
     }
     
     if (monthMatch != null) {
       totalDays += int.parse(monthMatch.group(1)!) * 30;
+      hasMatch = true;
     }
     
     if (dayMatch != null) {
       totalDays += int.parse(dayMatch.group(1)!);
+      hasMatch = true;
     }
     
     // 如果没有匹配到任何有效格式，返回 null
-    if (totalDays == 0 && yearMatch == null && monthMatch == null && dayMatch == null) {
-      // 尝试作为纯数字解析
-      final numberOnly = int.tryParse(trimmed);
-      return numberOnly;
+    if (!hasMatch) {
+      return null;
     }
     
     return totalDays;
