@@ -58,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
+      // 排序：is_pinned DESC, created_at DESC（置顶优先，其余按创建时间倒序）
       final response = await Supabase.instance.client
           .from('assets')
           .select()
@@ -267,6 +268,172 @@ class _HomeScreenState extends State<HomeScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('删除失败：$e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// 编辑资产
+  Future<void> _editAsset(Asset asset) async {
+    // 控制器初始化
+    final nameController = TextEditingController(text: asset.assetName);
+    final priceController = TextEditingController(text: asset.purchasePrice.toString());
+    final expectedDaysController = TextEditingController(text: asset.expectedLifespanDays.toString());
+    final purchaseDateController = TextEditingController(
+      text: '${asset.purchaseDate.year}-${asset.purchaseDate.month.toString().padLeft(2, '0')}-${asset.purchaseDate.day.toString().padLeft(2, '0')}',
+    );
+    DateTime purchaseDate = asset.purchaseDate;
+    int expectedDays = asset.expectedLifespanDays;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('编辑资产'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: '资产名称',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: priceController,
+                  decoration: const InputDecoration(
+                    labelText: '购入价格',
+                    prefixText: '¥ ',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: expectedDaysController,
+                  decoration: const InputDecoration(
+                    labelText: '预计使用时长',
+                    hintText: '例如：5 年、1 年 6 个月、1825 天',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) {
+                    final parsed = DateParser.parseLifespan(value);
+                    if (parsed != null && parsed > 0) {
+                      expectedDays = parsed;
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: purchaseDate,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime.now(),
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        purchaseDate = picked;
+                        purchaseDateController.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+                      });
+                    }
+                  },
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: '购买日期',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.calendar_today),
+                    ),
+                    child: Text(purchaseDateController.text),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                // 验证输入
+                if (nameController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('请输入资产名称'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                final price = double.tryParse(priceController.text);
+                if (price == null || price <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('请输入有效的购入价格'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                final days = DateParser.parseLifespan(expectedDaysController.text);
+                if (days == null || days <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('请输入有效的预计使用时长'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
+              child: const Text('保存修改'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final parsedDays = DateParser.parseLifespan(expectedDaysController.text) ?? expectedDays;
+        final updatedAsset = asset.copyWith(
+          assetName: nameController.text.trim(),
+          purchasePrice: double.parse(priceController.text),
+          expectedLifespanDays: parsedDays,
+          purchaseDate: purchaseDate,
+        );
+
+        await Supabase.instance.client
+            .from('assets')
+            .update(updatedAsset.toJson())
+            .eq('id', asset.id!);
+        
+        await _loadAssets();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('资产已更新'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('更新失败：$e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -503,15 +670,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       // 购买日期输入框（支持手写输入）
                       TextFormField(
                         controller: _purchaseDateController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: '购买日期',
-                          hintText: '例如：2026-01-01 或 2026年1月1日',
-                          prefixIcon: Icon(Icons.event),
+                          hintText: '例如：2026-01-01 或 2026 年 1 月 1 日',
+                          prefixIcon: const Icon(Icons.event),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.calendar_today),
                             onPressed: _selectPurchaseDate,
                           ),
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                         ),
                         onChanged: _parsePurchaseDateFromInput,
                         onTap: _selectPurchaseDate,
@@ -661,7 +828,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       onSelected: (value) {
                         switch (value) {
                           case 'edit':
-                            // TODO: 编辑功能
+                            _editAsset(asset);
                             break;
                           case 'pin':
                             _togglePinned(asset);
