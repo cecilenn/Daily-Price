@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/app_provider.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/settings_screen.dart';
 
 Future<void> main() async {
@@ -22,9 +23,14 @@ Future<void> main() async {
   );
 }
 
-class DailyPriceApp extends StatelessWidget {
+class DailyPriceApp extends StatefulWidget {
   const DailyPriceApp({super.key});
 
+  @override
+  State<DailyPriceApp> createState() => _DailyPriceAppState();
+}
+
+class _DailyPriceAppState extends State<DailyPriceApp> {
   /// 获取主题数据
   ThemeData _getThemeData(AppTheme theme) {
     switch (theme) {
@@ -129,11 +135,48 @@ class DailyPriceApp extends StatelessWidget {
           title: '个人资产管理',
           debugShowCheckedModeBanner: false,
           theme: _getThemeData(appProvider.theme),
-          home: const HomeScreen(),
+          home: const AuthWrapper(),
           routes: {
             '/settings': (context) => const SettingsScreen(),
           },
         );
+      },
+    );
+  }
+}
+
+/// 认证包装器 - 根据登录状态决定显示哪个页面
+class AuthWrapper extends StatefulWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  late final Stream<AuthState> _authStateStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _authStateStream = Supabase.instance.client.auth.onAuthStateChange;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<AuthState>(
+      stream: _authStateStream,
+      builder: (context, snapshot) {
+        // 检查当前会话状态
+        final session = Supabase.instance.client.auth.currentSession;
+        
+        if (session != null) {
+          // 已登录，显示主页
+          return const HomeScreen();
+        } else {
+          // 未登录，显示登录页
+          return const LoginScreen();
+        }
       },
     );
   }

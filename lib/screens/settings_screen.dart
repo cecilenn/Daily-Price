@@ -90,55 +90,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text('设置'),
       ),
-      body: ListView(
-        children: [
-          ListTile(
-            title: const Text('导出本地存档'),
-            subtitle: const Text('将当前云端资产数据导出为 CSV 文件'),
-            trailing: _isExporting
-                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.download),
-            onTap: _isExporting ? null : _exportToCSV,
+      // Web 端宽度限制：在宽屏上限制最大宽度为 600，居中显示
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: ListView(
+            children: [
+              ListTile(
+                title: const Text('导出本地存档'),
+                subtitle: const Text('将当前云端资产数据导出为 CSV 文件'),
+                trailing: _isExporting
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.download),
+                onTap: _isExporting ? null : _exportToCSV,
+              ),
+              const Divider(),
+              ListTile(
+                title: const Text('主题设置'),
+                subtitle: const Text('选择应用的主题风格'),
+                trailing: DropdownButton<AppTheme>(
+                  value: appProvider.theme,
+                  onChanged: (AppTheme? newValue) {
+                    if (newValue != null) {
+                      appProvider.setTheme(newValue);
+                    }
+                  },
+                  items: AppTheme.values.map((AppTheme theme) {
+                    return DropdownMenuItem<AppTheme>(
+                      value: theme,
+                      child: Text(theme == AppTheme.dark ? '默认暗黑' : (theme == AppTheme.light ? '极简留白' : '复古护眼')),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                title: const Text('日期显示格式'),
+                subtitle: const Text('资产卡片上的期限显示方式'),
+                trailing: DropdownButton<DateFormatStyle>(
+                  value: appProvider.dateFormatStyle,
+                  onChanged: (DateFormatStyle? newValue) {
+                    if (newValue != null) {
+                      appProvider.setDateFormatStyle(newValue);
+                    }
+                  },
+                  items: DateFormatStyle.values.map((DateFormatStyle style) {
+                    return DropdownMenuItem<DateFormatStyle>(
+                      value: style,
+                      child: Text(style == DateFormatStyle.days ? '纯天数' : '年月日组合'),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
           ),
-          const Divider(),
-          ListTile(
-            title: const Text('主题设置'),
-            subtitle: const Text('选择应用的主题风格'),
-            trailing: DropdownButton<AppTheme>(
-              value: appProvider.theme,
-              onChanged: (AppTheme? newValue) {
-                if (newValue != null) {
-                  appProvider.setTheme(newValue);
-                }
-              },
-              items: AppTheme.values.map((AppTheme theme) {
-                return DropdownMenuItem<AppTheme>(
-                  value: theme,
-                  child: Text(theme == AppTheme.dark ? '默认暗黑' : (theme == AppTheme.light ? '极简留白' : '复古护眼')),
-                );
-              }).toList(),
-            ),
-          ),
-          const Divider(),
-          ListTile(
-            title: const Text('日期显示格式'),
-            subtitle: const Text('资产卡片上的期限显示方式'),
-            trailing: DropdownButton<DateFormatStyle>(
-              value: appProvider.dateFormatStyle,
-              onChanged: (DateFormatStyle? newValue) {
-                if (newValue != null) {
-                  appProvider.setDateFormatStyle(newValue);
-                }
-              },
-              items: DateFormatStyle.values.map((DateFormatStyle style) {
-                return DropdownMenuItem<DateFormatStyle>(
-                  value: style,
-                  child: Text(style == DateFormatStyle.days ? '纯天数' : '年月日组合'),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
