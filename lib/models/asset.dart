@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 /// 资产模型 - 用于记录个人资产折旧与价值平摊
 /// 数据库字段对应：
 /// - id: UUID 主键
+/// - user_id: 用户 ID（关联 auth.users）
 /// - asset_name: 资产名称
 /// - purchase_price: 购入价格
 /// - expected_lifespan_days: 预计使用天数
@@ -14,6 +15,7 @@ import 'package:intl/intl.dart';
 /// - created_at: 创建时间
 class Asset {
   final String? id;
+  final String? userId; // 用户 ID，用于多用户数据隔离
   final String assetName; // 资产名称
   final double purchasePrice; // 购入价格
   final int expectedLifespanDays; // 预计使用天数
@@ -26,6 +28,7 @@ class Asset {
 
   Asset({
     this.id,
+    this.userId,
     required this.assetName,
     required this.purchasePrice,
     required this.expectedLifespanDays,
@@ -104,6 +107,7 @@ class Asset {
   Map<String, dynamic> toJson() {
     return {
       if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
       'asset_name': assetName,
       'purchase_price': purchasePrice,
       'expected_lifespan_days': expectedLifespanDays,
@@ -120,6 +124,7 @@ class Asset {
   factory Asset.fromJson(Map<String, dynamic> json) {
     return Asset(
       id: json['id'] as String?,
+      userId: json['user_id'] as String?,
       assetName: json['asset_name'] as String,
       purchasePrice: (json['purchase_price'] as num).toDouble(),
       expectedLifespanDays: json['expected_lifespan_days'] as int,
@@ -135,6 +140,7 @@ class Asset {
   /// 复制并修改
   Asset copyWith({
     String? id,
+    String? userId,
     String? assetName,
     double? purchasePrice,
     int? expectedLifespanDays,
@@ -146,6 +152,7 @@ class Asset {
   }) {
     return Asset(
       id: id ?? this.id,
+      userId: userId ?? this.userId,
       assetName: assetName ?? this.assetName,
       purchasePrice: purchasePrice ?? this.purchasePrice,
       expectedLifespanDays: expectedLifespanDays ?? this.expectedLifespanDays,

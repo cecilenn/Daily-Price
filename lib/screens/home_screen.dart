@@ -53,6 +53,18 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 从 Supabase 加载资产数据
   /// [isRefresh] 为 true 时表示下拉刷新/后台刷新，不清空已有数据，实现无缝刷新
   Future<void> _loadAssets({bool isRefresh = false}) async {
+    // 获取当前登录用户的 UID
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    if (currentUser == null) {
+      // 未登录时不加载数据
+      setState(() {
+        _isLoading = false;
+        _errorMessage = '请先登录';
+        _assets = [];
+      });
+      return;
+    }
+
     // 如果是刷新操作且已有数据，静默刷新，不清空列表，不显示全屏加载
     // 仅在首次加载（_assets 为空）时显示全屏加载圈
     if (_assets.isEmpty) {
@@ -63,10 +75,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      // 排序：is_pinned DESC, created_at DESC（置顶优先，其余按创建时间倒序）
+      // 查询当前用户的资产，按置顶和创建时间排序
+      // RLS 策略会自动过滤，但显式添加 user_id 过滤更安全
       final response = await Supabase.instance.client
           .from('assets')
           .select()
+          .eq('user_id', currentUser.id)
           .order('is_pinned', ascending: false)
           .order('created_at', ascending: false);
 
@@ -125,6 +139,18 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // 获取当前登录用户的 UID
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('未找到登录用户，请重新登录'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     // 显示加载指示器
     showDialog(
       context: context,
@@ -133,8 +159,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-      // 创建新资产对象
+      // 创建新资产对象，包含用户 ID
       final newAsset = Asset(
+        userId: currentUser.id,
         assetName: _nameController.text.trim(),
         purchasePrice: double.parse(_priceController.text),
         expectedLifespanDays: parsedDays,
