@@ -1,9 +1,13 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:universal_html/html.dart' as html;
+import 'package:intl/intl.dart';
+import '../models/asset.dart';
 import '../providers/app_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -15,68 +19,300 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isExporting = false;
+  bool _isImporting = false;
+  bool _importExportLocked = false; // 防抖保护
+
+  /// 格式化日期为 yyyy-MM-dd 格式
+  String _formatDate(DateTime date) {
+    return DateFormat('yyyy-MM-dd').format(date);
+  }
+
+  /// 解析日期字符串
+  DateTime? _parseDateString(String? dateStr) {
+    if (dateStr == null || dateStr.trim().isEmpty) return null;
+    
+    final trimmed = dateStr.trim();
+    
+    // 尝试多种日期格式
+    final formats = [
+      'yyyy-MM-dd',
+      'yyyy/MM/dd',
+      'yyyy.MM.dd',
+      'yyyy年M月d日',
+      'yyyy年MM月dd日',
+    ];
+    
+    for (final format in formats) {
+      try {
+        return DateFormat(format).parse(trimmed);
+      } catch (_) {
+        continue;
+      }
+    }
+    
+    // 尝试标准 DateTime 解析
+    try {
+      return DateTime.parse(trimmed);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 显示错误提示
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// 显示成功提示
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
 
   /// 导出 CSV 文件逻辑
   Future<void> _exportToCSV() async {
+    // 防抖保护
+    if (_importExportLocked) return;
+    
     setState(() {
       _isExporting = true;
+      _importExportLocked = true;
     });
 
     try {
-      // 1. 从 Supabase 拉取所有资产数据
+      // 获取当前登录用户
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser == null) {
+        _showError('请先登录');
+        return;
+      }
+
+      // 1. 从 Supabase 拉取当前用户的资产数据
       final response = await Supabase.instance.client
           .from('assets')
           .select()
+          .eq('user_id', currentUser.id)
           .order('created_at', ascending: false);
 
-      final List<Map<String, dynamic>> rawAssets = List<Map<String, dynamic>>.from(response);
+      // 2. 将 raw data 转化为 Asset 对象列表
+      final List<Asset> assets = (response as List)
+          .map((item) => Asset.fromJson(item))
+          .toList();
 
-      // 2. 构建 CSV 表头和数据行
+      if (assets.isEmpty) {
+        _showError('没有可导出的资产数据');
+        return;
+      }
+
+      // 3. 构建 CSV 表头和数据行
+      // 表头顺序：['资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '创建时间']
       final List<List<dynamic>> csvData = [
         ['资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '创建时间'],
-        ...rawAssets.map((item) => [
-          item['asset_name'] ?? '',
-          item['purchase_price'] ?? '',
-          item['expected_lifespan_days'] ?? '',
-          item['purchase_date'] ?? '',
-          item['is_pinned'] == true ? '是' : '否',
-          item['is_sold'] == true ? '是' : '否',
-          item['sold_price'] ?? '',
-          item['sold_date'] ?? '',
-          item['created_at'] ?? '',
+        ...assets.map((asset) => [
+          asset.assetName,
+          asset.purchasePrice.toStringAsFixed(2),
+          asset.expectedLifespanDays.toString(),
+          _formatDate(asset.purchaseDate),
+          asset.isPinned ? '是' : '否',
+          asset.isSold ? '是' : '否',
+          asset.soldPrice != null ? asset.soldPrice!.toStringAsFixed(2) : '',
+          asset.soldDate != null ? _formatDate(asset.soldDate!) : '',
+          _formatDate(asset.createdAt),
         ]),
       ];
 
-      // 3. 转换为带 BOM 头（防止 Excel 中文乱码）的 CSV 格式
+      // 4. 转换为带 BOM 头（防止 Excel 中文乱码）的 CSV 格式
       final csvString = const ListToCsvConverter().convert(csvData);
       final bytes = utf8.encode(csvString);
       // 添加 UTF-8 BOM
-      final bytesWithBom = [0xEF, 0xBB, 0xBF, ...bytes]; 
-      final blob = html.Blob([bytesWithBom], 'text/csv;charset=utf-8');
-      final url = html.Url.createObjectUrlFromBlob(blob);
+      final bytesWithBom = [0xEF, 0xBB, 0xBF, ...bytes];
 
-      // 4. 触发 Web 端下载
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', 'assets_export_${DateTime.now().toIso8601String().split('T')[0]}.csv')
-        ..click();
-
-      html.Url.revokeObjectUrl(url);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('导出成功！已开始下载'), backgroundColor: Colors.green),
+      // 5. 根据平台选择不同的下载方式
+      if (kIsWeb) {
+        // Web 端下载 - 修复：必须使用 Uint8List，否则会被强制转化为 ASCII 数字字符串
+        final blob = html.Blob([Uint8List.fromList(bytesWithBom)], 'text/csv;charset=utf-8');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute('download', 'assets_export_${DateTime.now().toIso8601String().split('T')[0]}.csv')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        // 桌面端/移动端下载
+        String? outputPath = await FilePicker.platform.saveFile(
+          dialogTitle: '保存 CSV 文件',
+          fileName: 'assets_export_${DateTime.now().toIso8601String().split('T')[0]}.csv',
+          bytes: Uint8List.fromList(bytesWithBom),
         );
+        
+        if (outputPath == null) {
+          // 用户取消了保存
+          return;
+        }
       }
+
+      _showSuccess('导出成功！共导出 ${assets.length} 条资产记录');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出失败: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError('导出失败: $e');
     } finally {
       if (mounted) {
         setState(() {
           _isExporting = false;
+          _importExportLocked = false;
+        });
+      }
+    }
+  }
+
+  /// 导入 CSV 文件逻辑
+  Future<void> _importFromCSV() async {
+    // 防抖保护
+    if (_importExportLocked) return;
+    
+    setState(() {
+      _isImporting = true;
+      _importExportLocked = true;
+    });
+
+    try {
+      // 获取当前登录用户
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser == null) {
+        _showError('请先登录');
+        return;
+      }
+
+      // 1. 选择 CSV 文件
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        withData: true, // Web 端和桌面端都需要
+      );
+
+      if (result == null || result.files.isEmpty) {
+        // 用户取消了选择
+        return;
+      }
+
+      final file = result.files.first;
+      
+      // 2. 读取文件内容
+      if (file.bytes == null) {
+        _showError('无法读取文件内容');
+        return;
+      }
+      
+      String csvContent = utf8.decode(file.bytes!);
+
+      // 3. 解析 CSV 数据
+      // 尝试检测并移除 BOM 头
+      String normalizedContent = csvContent;
+      if (csvContent.startsWith('\ufeff')) {
+        normalizedContent = csvContent.substring(1);
+      }
+
+      final List<List<dynamic>> csvRows = const CsvToListConverter().convert(normalizedContent);
+      
+      if (csvRows.length < 2) {
+        _showError('CSV 文件为空或格式不正确');
+        return;
+      }
+
+      // 4. 忽略第一行表头，解析数据行
+      final List<Map<String, dynamic>> assetsToInsert = [];
+      int skippedRows = 0;
+
+      for (int i = 1; i < csvRows.length; i++) {
+        final row = csvRows[i];
+        
+        // 确保行有足够的列数
+        if (row.length < 9) {
+          skippedRows++;
+          continue;
+        }
+
+        try {
+          // 解析每一行数据
+          // 表头顺序：['资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '创建时间']
+          final assetName = row[0]?.toString().trim() ?? '';
+          if (assetName.isEmpty) {
+            skippedRows++;
+            continue;
+          }
+
+          final purchasePrice = double.tryParse(row[1]?.toString() ?? '0') ?? 0.0;
+          final expectedLifespanDays = int.tryParse(row[2]?.toString() ?? '0') ?? 0;
+          
+          // 解析购买日期
+          DateTime? purchaseDate = _parseDateString(row[3]?.toString() ?? '');
+          if (purchaseDate == null) {
+            purchaseDate = DateTime.now();
+          }
+
+          // 解析布尔值
+          final isPinned = row[4]?.toString() == '是' || row[4]?.toString().toLowerCase() == 'true';
+          final isSold = row[5]?.toString() == '是' || row[5]?.toString().toLowerCase() == 'true';
+
+          // 解析卖出价格
+          double? soldPrice;
+          if (row[6] != null && row[6].toString().isNotEmpty) {
+            soldPrice = double.tryParse(row[6].toString());
+          }
+
+          // 解析出售日期
+          DateTime? soldDate;
+          if (row[7] != null && row[7].toString().isNotEmpty) {
+            soldDate = _parseDateString(row[7].toString());
+          }
+
+          // 构建要插入的数据 - 强制加上当前登录用户的 user_id
+          assetsToInsert.add({
+            'user_id': currentUser.id, // 核心：强制加上当前登录用户的 user_id
+            'asset_name': assetName,
+            'purchase_price': purchasePrice,
+            'expected_lifespan_days': expectedLifespanDays,
+            'purchase_date': purchaseDate.toIso8601String(),
+            'is_pinned': isPinned,
+            'is_sold': isSold,
+            if (soldPrice != null) 'sold_price': soldPrice,
+            if (soldDate != null) 'sold_date': soldDate.toIso8601String(),
+          });
+        } catch (e) {
+          skippedRows++;
+          continue;
+        }
+      }
+
+      if (assetsToInsert.isEmpty) {
+        _showError('没有有效的数据可导入${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
+        return;
+      }
+
+      // 5. 批量上传到 Supabase
+      await Supabase.instance.client
+          .from('assets')
+          .insert(assetsToInsert);
+
+      _showSuccess('导入成功！共导入 ${assetsToInsert.length} 条资产记录${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
+    } catch (e) {
+      _showError('导入失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImporting = false;
+          _importExportLocked = false;
         });
       }
     }
@@ -84,66 +320,233 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final appProvider = Provider.of<AppProvider>(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('设置'),
+        centerTitle: true,
       ),
-      // Web 端宽度限制：在宽屏上限制最大宽度为 600，居中显示
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 600),
           child: ListView(
             children: [
+              // 外观分区
+              _buildSectionHeader('外观'),
+              
+              // 主题切换
+              Consumer<AppProvider>(
+                builder: (context, appProvider, child) {
+                  return ListTile(
+                    leading: Icon(
+                      appProvider.theme == AppTheme.light 
+                          ? Icons.light_mode 
+                          : appProvider.theme == AppTheme.dark 
+                              ? Icons.dark_mode 
+                              : Icons.eco,
+                    ),
+                    title: const Text('主题风格'),
+                    subtitle: Text(_getThemeName(appProvider.theme)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showThemeDialog(appProvider),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              
+              const SizedBox(height: 16),
+              
+              // 数据管理分区
+              _buildSectionHeader('数据管理'),
+              
+              // 导出数据
               ListTile(
-                title: const Text('导出本地存档'),
-                subtitle: const Text('将当前云端资产数据导出为 CSV 文件'),
+                leading: const Icon(Icons.upload_file),
+                title: const Text('导出数据存档'),
+                subtitle: const Text('将所有资产数据导出为 CSV 文件'),
                 trailing: _isExporting
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.download),
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.chevron_right),
                 onTap: _isExporting ? null : _exportToCSV,
               ),
-              const Divider(),
+              const Divider(height: 1),
+              
+              // 导入数据
               ListTile(
-                title: const Text('主题设置'),
-                subtitle: const Text('选择应用的主题风格'),
-                trailing: DropdownButton<AppTheme>(
-                  value: appProvider.theme,
-                  onChanged: (AppTheme? newValue) {
-                    if (newValue != null) {
-                      appProvider.setTheme(newValue);
-                    }
-                  },
-                  items: AppTheme.values.map((AppTheme theme) {
-                    return DropdownMenuItem<AppTheme>(
-                      value: theme,
-                      child: Text(theme == AppTheme.dark ? '默认暗黑' : (theme == AppTheme.light ? '极简留白' : '复古护眼')),
-                    );
-                  }).toList(),
-                ),
+                leading: const Icon(Icons.download),
+                title: const Text('导入本地存档'),
+                subtitle: const Text('从 CSV 文件导入资产数据'),
+                trailing: _isImporting
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.chevron_right),
+                onTap: _isImporting ? null : _importFromCSV,
               ),
-              const Divider(),
+              const Divider(height: 1),
+              
+              const SizedBox(height: 16),
+              
+              // 账户分区
+              _buildSectionHeader('账户'),
+              
+              // 退出登录
               ListTile(
-                title: const Text('日期显示格式'),
-                subtitle: const Text('资产卡片上的期限显示方式'),
-                trailing: DropdownButton<DateFormatStyle>(
-                  value: appProvider.dateFormatStyle,
-                  onChanged: (DateFormatStyle? newValue) {
-                    if (newValue != null) {
-                      appProvider.setDateFormatStyle(newValue);
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('退出登录', style: TextStyle(color: Colors.red)),
+                subtitle: const Text('退出当前账户'),
+                onTap: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('确认退出'),
+                      content: const Text('确定要退出登录吗？'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('取消'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('退出', style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                    ),
+                  );
+                  
+                  if (confirmed == true) {
+                    await Supabase.instance.client.auth.signOut();
+                    if (mounted) {
+                      Navigator.of(context).pop();
                     }
-                  },
-                  items: DateFormatStyle.values.map((DateFormatStyle style) {
-                    return DropdownMenuItem<DateFormatStyle>(
-                      value: style,
-                      child: Text(style == DateFormatStyle.days ? '纯天数' : '年月日组合'),
-                    );
-                  }).toList(),
+                  }
+                },
+              ),
+              
+              const SizedBox(height: 32),
+              
+              // 关于分区
+              _buildSectionHeader('关于'),
+              
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('版本'),
+                subtitle: const Text('1.0.0'),
+              ),
+              
+              const SizedBox(height: 48),
+              
+              // 底部提示
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  '提示：导入数据时，所有资产将关联到当前登录账户。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 获取主题名称
+  String _getThemeName(AppTheme theme) {
+    switch (theme) {
+      case AppTheme.light:
+        return '极简留白';
+      case AppTheme.dark:
+        return '暗黑模式';
+      case AppTheme.green:
+        return '复古护眼';
+    }
+  }
+
+  /// 显示主题选择对话框
+  void _showThemeDialog(AppProvider appProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('选择主题'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildThemeOption(
+              appProvider,
+              AppTheme.light,
+              '极简留白',
+              Icons.light_mode,
+              '清爽明亮的浅色主题',
+            ),
+            const Divider(height: 1),
+            _buildThemeOption(
+              appProvider,
+              AppTheme.dark,
+              '暗黑模式',
+              Icons.dark_mode,
+              '护眼舒适的深色主题',
+            ),
+            const Divider(height: 1),
+            _buildThemeOption(
+              appProvider,
+              AppTheme.green,
+              '复古护眼',
+              Icons.eco,
+              '温和的绿色护眼主题',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 构建主题选项
+  Widget _buildThemeOption(
+    AppProvider appProvider,
+    AppTheme theme,
+    String name,
+    IconData icon,
+    String description,
+  ) {
+    final isSelected = appProvider.theme == theme;
+    
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(name),
+      subtitle: Text(
+        description,
+        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+      ),
+      trailing: isSelected
+          ? const Icon(Icons.check, color: Colors.green)
+          : null,
+      onTap: () {
+        appProvider.setTheme(theme);
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  /// 构建分区标题
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey[600],
         ),
       ),
     );
