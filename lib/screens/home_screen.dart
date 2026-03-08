@@ -370,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              const Divider(),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'toggle_order',
                 child: Row(
@@ -1103,7 +1103,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'is_sold': isSold,
                             'category': category,
                             if (soldPrice != null && isSold) 'sold_price': soldPrice,
-                            if (soldDate != null && isSold) 'sold_date': soldDate.toIso8601String(),
+                            if (soldDate != null && isSold) 'sold_date': soldDate!.toIso8601String(),
                             if (expireDate != null) 'expire_date': expireDate!.toIso8601String(),
                             'renewal_history': renewalHistory,
                           };

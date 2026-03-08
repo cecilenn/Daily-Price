@@ -362,8 +362,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           };
           
           // 如果有 ID，添加到数据中用于 upsert
-          if (hasIdColumn && assetId.isNotEmpty) {
-            assetData['id'] = assetId;
+          if (hasIdColumn && assetId != null && assetId!.isNotEmpty) {
+            assetData['id'] = assetId!;
           }
           
           assetsToUpsert.add(assetData);
