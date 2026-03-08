@@ -12,6 +12,9 @@ import 'package:intl/intl.dart';
 /// - is_sold: 是否已出售
 /// - sold_price: 出售价格
 /// - sold_date: 出售日期
+/// - category: 资产分类 (physical, virtual, subscription)
+/// - expire_date: 过期日期（用于订阅类资产）
+/// - renewal_history: 续费历史记录
 /// - created_at: 创建时间
 class Asset {
   final String? id;
@@ -24,6 +27,9 @@ class Asset {
   final bool isSold; // 是否已出售
   final double? soldPrice; // 出售价格
   final DateTime? soldDate; // 出售日期
+  final String category; // 资产分类：physical(实体), virtual(虚拟), subscription(订阅)
+  final DateTime? expireDate; // 过期日期（主要用于订阅类资产）
+  final List<dynamic> renewalHistory; // 续费历史记录
   final DateTime createdAt; // 创建时间
 
   Asset({
@@ -37,8 +43,12 @@ class Asset {
     this.isSold = false,
     this.soldPrice,
     this.soldDate,
+    this.category = 'physical',
+    this.expireDate,
+    List<dynamic>? renewalHistory,
     DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+  })  : renewalHistory = renewalHistory ?? [],
+        createdAt = createdAt ?? DateTime.now();
 
   /// 计算日均成本
   double get dailyCost {
@@ -116,6 +126,9 @@ class Asset {
       'is_sold': isSold,
       if (soldPrice != null) 'sold_price': soldPrice,
       if (soldDate != null) 'sold_date': soldDate!.toIso8601String(),
+      'category': category,
+      if (expireDate != null) 'expire_date': expireDate!.toIso8601String(),
+      'renewal_history': renewalHistory,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -133,6 +146,9 @@ class Asset {
       isSold: (json['is_sold'] as bool?) ?? false,
       soldPrice: json['sold_price'] != null ? (json['sold_price'] as num).toDouble() : null,
       soldDate: json['sold_date'] != null ? _parseDate(json['sold_date']) : null,
+      category: (json['category'] as String?) ?? 'physical',
+      expireDate: json['expire_date'] != null ? _parseDate(json['expire_date']) : null,
+      renewalHistory: json['renewal_history'] as List<dynamic>? ?? [],
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -149,6 +165,9 @@ class Asset {
     bool? isSold,
     double? soldPrice,
     DateTime? soldDate,
+    String? category,
+    DateTime? expireDate,
+    List<dynamic>? renewalHistory,
   }) {
     return Asset(
       id: id ?? this.id,
@@ -161,13 +180,16 @@ class Asset {
       isSold: isSold ?? this.isSold,
       soldPrice: soldPrice ?? this.soldPrice,
       soldDate: soldDate ?? this.soldDate,
+      category: category ?? this.category,
+      expireDate: expireDate ?? this.expireDate,
+      renewalHistory: renewalHistory ?? this.renewalHistory,
       createdAt: createdAt,
     );
   }
 
   @override
   String toString() {
-    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate)';
+    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory)';
   }
 
   /// 解析预计使用天数，支持自然语言
