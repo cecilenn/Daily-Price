@@ -157,6 +157,7 @@ content: Text(message),
                     border: OutlineInputBorder(),
                   ),
                   obscureText: true,
+                  onFieldSubmitted: (_) => _isRegisterMode ? _signUp() : _signIn(),
                 ),
                 const SizedBox(height: 24),
                 if (_isLoading)

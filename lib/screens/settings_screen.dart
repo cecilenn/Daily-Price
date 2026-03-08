@@ -154,10 +154,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       // 3. 构建 CSV 表头和数据行
-      // 表头顺序：['资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '创建时间']
+      // 表头顺序：['ID', '资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '资产类型', '过期日期', '创建时间']
       final List<List<dynamic>> csvData = [
-        ['资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '创建时间'],
+        ['ID', '资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '资产类型', '过期日期', '创建时间'],
         ...assets.map((asset) => [
+          asset.id ?? '', // ID 作为第一列，用于 upsert 去重
           asset.assetName,
           asset.purchasePrice.toStringAsFixed(2),
           asset.expectedLifespanDays.toString(),
@@ -166,6 +167,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           asset.isSold ? '是' : '否',
           asset.soldPrice != null ? asset.soldPrice!.toStringAsFixed(2) : '',
           asset.soldDate != null ? _formatDate(asset.soldDate!) : '',
+          asset.category, // 资产类型
+          asset.expireDate != null ? _formatDate(asset.expireDate!) : '',
           _formatDate(asset.createdAt),
         ]),
       ];
@@ -267,13 +270,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       // 4. 忽略第一行表头，解析数据行
-      final List<Map<String, dynamic>> assetsToInsert = [];
+      final List<Map<String, dynamic>> assetsToUpsert = [];
       int skippedRows = 0;
 
       for (int i = 1; i < csvRows.length; i++) {
         final row = csvRows[i];
         
-        // 确保行有足够的列数
+        // 确保行有足够的列数（至少需要 9 列：ID + 8 个基本字段）
         if (row.length < 9) {
           skippedRows++;
           continue;
@@ -281,40 +284,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         try {
           // 解析每一行数据
-          // 表头顺序：['资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '创建时间']
-          final assetName = row[0]?.toString().trim() ?? '';
+          // 新表头顺序：['ID', '资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '资产类型', '过期日期', '创建时间']
+          // 兼容旧格式（无 ID 列）：['资产名称', '购入价格', ...]
+          
+          // 检测是否有 ID 列（通过检查第一行表头判断）
+          final firstRowHeader = csvRows[0][0]?.toString() ?? '';
+          final hasIdColumn = firstRowHeader == 'ID';
+          
+          int colOffset = 0;
+          String? assetId;
+          
+          if (hasIdColumn) {
+            // 新格式：第一列是 ID
+            assetId = row[0]?.toString().trim() ?? '';
+            colOffset = 0;
+          }
+          
+          final assetName = row[colOffset + 0]?.toString().trim() ?? '';
           if (assetName.isEmpty) {
             skippedRows++;
             continue;
           }
 
-          final purchasePrice = double.tryParse(row[1]?.toString() ?? '0') ?? 0.0;
-          final expectedLifespanDays = int.tryParse(row[2]?.toString() ?? '0') ?? 0;
+          final purchasePrice = double.tryParse(row[colOffset + 1]?.toString() ?? '0') ?? 0.0;
+          final expectedLifespanDays = int.tryParse(row[colOffset + 2]?.toString() ?? '0') ?? 0;
           
           // 解析购买日期
-          DateTime? purchaseDate = _parseDateString(row[3]?.toString() ?? '');
+          DateTime? purchaseDate = _parseDateString(row[colOffset + 3]?.toString() ?? '');
           if (purchaseDate == null) {
             purchaseDate = DateTime.now();
           }
 
           // 解析布尔值
-          final isPinned = row[4]?.toString() == '是' || row[4]?.toString().toLowerCase() == 'true';
-          final isSold = row[5]?.toString() == '是' || row[5]?.toString().toLowerCase() == 'true';
+          final isPinned = row[colOffset + 4]?.toString() == '是' || row[colOffset + 4]?.toString().toLowerCase() == 'true';
+          final isSold = row[colOffset + 5]?.toString() == '是' || row[colOffset + 5]?.toString().toLowerCase() == 'true';
 
           // 解析卖出价格
           double? soldPrice;
-          if (row[6] != null && row[6].toString().isNotEmpty) {
-            soldPrice = double.tryParse(row[6].toString());
+          if (row.length > colOffset + 6 && row[colOffset + 6] != null && row[colOffset + 6].toString().isNotEmpty) {
+            soldPrice = double.tryParse(row[colOffset + 6].toString());
           }
 
           // 解析出售日期
           DateTime? soldDate;
-          if (row[7] != null && row[7].toString().isNotEmpty) {
-            soldDate = _parseDateString(row[7].toString());
+          if (row.length > colOffset + 7 && row[colOffset + 7] != null && row[colOffset + 7].toString().isNotEmpty) {
+            soldDate = _parseDateString(row[colOffset + 7].toString());
+          }
+          
+          // 解析资产类型（新字段）
+          String category = 'physical';
+          if (row.length > colOffset + 9 && row[colOffset + 9] != null && row[colOffset + 9].toString().isNotEmpty) {
+            final cat = row[colOffset + 9].toString().trim();
+            if (['physical', 'virtual', 'subscription'].contains(cat)) {
+              category = cat;
+            }
+          }
+          
+          // 解析过期日期（新字段）
+          DateTime? expireDate;
+          if (row.length > colOffset + 10 && row[colOffset + 10] != null && row[colOffset + 10].toString().isNotEmpty) {
+            expireDate = _parseDateString(row[colOffset + 10].toString());
           }
 
-          // 构建要插入的数据 - 强制加上当前登录用户的 user_id
-          assetsToInsert.add({
+          // 构建要插入/更新的数据 - 强制加上当前登录用户的 user_id
+          final assetData = {
             'user_id': currentUser.id, // 核心：强制加上当前登录用户的 user_id
             'asset_name': assetName,
             'purchase_price': purchasePrice,
@@ -322,26 +355,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'purchase_date': purchaseDate.toIso8601String(),
             'is_pinned': isPinned,
             'is_sold': isSold,
+            'category': category,
             if (soldPrice != null) 'sold_price': soldPrice,
             if (soldDate != null) 'sold_date': soldDate.toIso8601String(),
-          });
+            if (expireDate != null) 'expire_date': expireDate.toIso8601String(),
+          };
+          
+          // 如果有 ID，添加到数据中用于 upsert
+          if (hasIdColumn && assetId.isNotEmpty) {
+            assetData['id'] = assetId;
+          }
+          
+          assetsToUpsert.add(assetData);
         } catch (e) {
           skippedRows++;
           continue;
         }
       }
 
-      if (assetsToInsert.isEmpty) {
+      if (assetsToUpsert.isEmpty) {
         _showError('没有有效的数据可导入${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
         return;
       }
 
-      // 5. 批量上传到 Supabase
+      // 5. 批量上传到 Supabase - 使用 upsert 避免重复
       await Supabase.instance.client
           .from('assets')
-          .insert(assetsToInsert);
+          .upsert(assetsToUpsert, onConflict: 'id');
 
-      _showSuccess('导入成功！共导入 ${assetsToInsert.length} 条资产记录${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
+      _showSuccess('导入成功！共导入 ${assetsToUpsert.length} 条资产记录${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
     } catch (e) {
       _showError('导入失败: $e');
     } finally {

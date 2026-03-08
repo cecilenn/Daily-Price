@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/app_provider.dart';
 
-/// 首页 - 添加资产页面
+/// 首页 - 资产列表与管理页面
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -14,67 +14,64 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _formKey = GlobalKey<FormState>();
-  
-  // 表单控制器
-  final _nameController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _expectedDaysController = TextEditingController();
-  final _purchaseDateController = TextEditingController();
-  
-  // 购买日期
-  DateTime _purchaseDate = DateTime.now();
-  
   // 资产列表
   List<Asset> _assets = [];
-  bool _isLoading = true;       // 首次加载
+  bool _isLoading = true;
   String? _errorMessage;
   
   // 当前分栏
   String _currentCategory = 'pinned';
-  final String _prefKey = 'default_startup_category';
   
   // 排序状态
-  String _sortBy = 'created_at';  // 排序字段：name, created_at, purchase_date, price
-  bool _sortAscending = false;    // 默认降序
+  String _sortBy = 'created_at';
+  bool _sortAscending = false;
+  
+  // SharedPreferences 键名
+  static const String _prefKeyCategory = 'home_current_category';
+  static const String _prefKeySortBy = 'home_sort_by';
+  static const String _prefKeySortAscending = 'home_sort_ascending';
 
   @override
   void initState() {
     super.initState();
-    _loadDefaultCategory();
+    _loadPreferences();
     _loadAssets();
-    _updatePurchaseDateText();
   }
   
-  /// 加载默认启动分栏设置
-  Future<void> _loadDefaultCategory() async {
+  /// 从 SharedPreferences 加载用户偏好设置
+  Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _currentCategory = prefs.getString(_prefKey) ?? 'pinned';
+      _currentCategory = prefs.getString(_prefKeyCategory) ?? 'pinned';
+      _sortBy = prefs.getString(_prefKeySortBy) ?? 'created_at';
+      _sortAscending = prefs.getBool(_prefKeySortAscending) ?? false;
+    });
+  }
+  
+  /// 保存当前分栏设置
+  Future<void> _saveCategory(String category) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefKeyCategory, category);
+    setState(() {
+      _currentCategory = category;
+    });
+  }
+  
+  /// 保存排序设置
+  Future<void> _saveSortSettings(String sortBy, bool ascending) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefKeySortBy, sortBy);
+    await prefs.setBool(_prefKeySortAscending, ascending);
+    setState(() {
+      _sortBy = sortBy;
+      _sortAscending = ascending;
     });
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _priceController.dispose();
-    _expectedDaysController.dispose();
-    _purchaseDateController.dispose();
-    super.dispose();
-  }
-
-  /// 更新购买日期文本
-  void _updatePurchaseDateText() {
-    _purchaseDateController.text = '${_purchaseDate.year}-${_purchaseDate.month.toString().padLeft(2, '0')}-${_purchaseDate.day.toString().padLeft(2, '0')}';
-  }
-
   /// 从 Supabase 加载资产数据
-  /// [isRefresh] 为 true 时表示下拉刷新/后台刷新，不清空已有数据，实现无缝刷新
   Future<void> _loadAssets({bool isRefresh = false}) async {
-    // 获取当前登录用户的 UID
     final currentUser = Supabase.instance.client.auth.currentUser;
     if (currentUser == null) {
-      // 未登录时不加载数据
       setState(() {
         _isLoading = false;
         _errorMessage = '请先登录';
@@ -83,8 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // 如果是刷新操作且已有数据，静默刷新，不清空列表，不显示全屏加载
-    // 仅在首次加载（_assets 为空）时显示全屏加载圈
     if (_assets.isEmpty) {
       setState(() {
         _isLoading = true;
@@ -93,8 +88,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      // 查询当前用户的资产，按置顶和创建时间排序
-      // RLS 策略会自动过滤，但显式添加 user_id 过滤更安全
       final response = await Supabase.instance.client
           .from('assets')
           .select()
@@ -102,7 +95,6 @@ class _HomeScreenState extends State<HomeScreen> {
           .order('is_pinned', ascending: false)
           .order('created_at', ascending: false);
 
-      // 更新云端同步时间
       if (response.isNotEmpty) {
         final latestAsset = Asset.fromJson(response.first);
         if (mounted) {
@@ -120,7 +112,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          // 只在首次加载或无数据时设置错误信息
           if (_assets.isEmpty) {
             _errorMessage = '加载数据失败：$e';
           }
@@ -128,98 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('加载数据失败：$e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  /// 添加资产到 Supabase
-  Future<void> _addAsset() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-    
-    // 调用 save() 触发 onSaved 回调，更新 _purchaseDate
-    _formKey.currentState!.save();
-
-    // 解析预计使用天数（支持自然语言）
-    final lifespanInput = _expectedDaysController.text.trim();
-    final parsedDays = DateParser.parseLifespan(lifespanInput);
-    if (parsedDays == null || parsedDays <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('请输入有效的预计使用天数'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // 获取当前登录用户的 UID
-    final currentUser = Supabase.instance.client.auth.currentUser;
-    if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('未找到登录用户，请重新登录'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // 显示加载指示器
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      // 创建新资产对象，包含用户 ID
-      final newAsset = Asset(
-        userId: currentUser.id,
-        assetName: _nameController.text.trim(),
-        purchasePrice: double.parse(_priceController.text),
-        expectedLifespanDays: parsedDays,
-        purchaseDate: _purchaseDate,
-      );
-
-      // 插入到 Supabase
-      await Supabase.instance.client.from('assets').insert(newAsset.toJson());
-
-      // 关闭加载指示器
-      if (mounted) Navigator.of(context).pop();
-
-      // 刷新列表
-      await _loadAssets();
-
-      // 清空表单
-      _nameController.clear();
-      _priceController.clear();
-      _expectedDaysController.clear();
-      setState(() {
-        _purchaseDate = DateTime.now();
-        _updatePurchaseDateText();
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('资产添加成功！'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      // 关闭加载指示器
-      if (mounted) Navigator.of(context).pop();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('添加失败：$e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -308,366 +207,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 编辑资产
-  Future<void> _editAsset(Asset asset) async {
-    // 控制器初始化
-    final nameController = TextEditingController(text: asset.assetName);
-    final priceController = TextEditingController(text: asset.purchasePrice.toString());
-    final expectedDaysController = TextEditingController(text: asset.expectedLifespanDays.toString());
-    final purchaseDateController = TextEditingController(
-      text: '${asset.purchaseDate.year}.${asset.purchaseDate.month}.${asset.purchaseDate.day}',
-    );
-    DateTime purchaseDate = asset.purchaseDate;
-    String? expectedDaysError;
-    String? purchaseDateError;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('编辑资产'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '资产名称',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: priceController,
-                  decoration: const InputDecoration(
-                    labelText: '购入价格',
-                    prefixText: '¥ ',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: expectedDaysController,
-                  decoration: InputDecoration(
-                    labelText: '预计使用时长',
-                    hintText: '例如：5 年、1 年 6 个月、1825 天',
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    errorText: expectedDaysError,
-                  ),
-                  onChanged: (value) {
-                    final parsed = Asset.parseExpectedDays(value);
-                    setDialogState(() {
-                      expectedDaysError = parsed > 0 ? null : '请输入有效的预计使用时长';
-                    });
-                  },
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: purchaseDateController,
-                  decoration: InputDecoration(
-                    labelText: '购买日期',
-                    hintText: '例如：2026.4.5 或 2026年1月1日',
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    errorText: purchaseDateError,
-                  ),
-                  onChanged: (value) {
-                    final parsed = Asset.parseCustomDate(value.trim());
-                    setDialogState(() {
-                      if (parsed != null) {
-                        purchaseDate = parsed;
-                        purchaseDateError = null;
-                      } else {
-                        purchaseDateError = '日期格式错误，请使用如 2026-1-1、2026.1.1 或 2026年1月1日 格式';
-                      }
-                    });
-                  },
-                  onSubmitted: (value) {
-                    // 验证输入并提交
-                    if (nameController.text.trim().isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('请输入资产名称'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return;
-                    }
-                    final price = double.tryParse(priceController.text);
-                    if (price == null || price <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('请输入有效的购入价格'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return;
-                    }
-                    final days = Asset.parseExpectedDays(expectedDaysController.text);
-                    if (days <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('请输入有效的预计使用时长'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return;
-                    }
-                    final parsedDate = Asset.parseCustomDate(purchaseDateController.text);
-                    if (parsedDate == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('请输入有效的购买日期'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return;
-                    }
-                    Navigator.pop(context, true);
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // 验证输入
-                if (nameController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('请输入资产名称'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                final price = double.tryParse(priceController.text);
-                if (price == null || price <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('请输入有效的购入价格'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                final days = Asset.parseExpectedDays(expectedDaysController.text);
-                if (days <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('请输入有效的预计使用时长'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                final parsedDate = Asset.parseCustomDate(purchaseDateController.text);
-                if (parsedDate == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('请输入有效的购买日期'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                Navigator.pop(context, true);
-              },
-              child: const Text('保存修改'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        final parsedDays = Asset.parseExpectedDays(expectedDaysController.text);
-        final parsedDate = Asset.parseCustomDate(purchaseDateController.text) ?? purchaseDate;
-        final updatedAsset = asset.copyWith(
-          assetName: nameController.text.trim(),
-          purchasePrice: double.parse(priceController.text),
-          expectedLifespanDays: parsedDays,
-          purchaseDate: parsedDate,
-        );
-
-        await Supabase.instance.client
-            .from('assets')
-            .update(updatedAsset.toJson())
-            .eq('id', asset.id!);
-        
-        await _loadAssets(isRefresh: true);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('资产已更新'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('更新失败：$e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  /// 出售资产
-  Future<void> _sellAsset(Asset asset) async {
-    final soldPriceController = TextEditingController();
-    DateTime soldDate = DateTime.now();
-    
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('出售资产'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('资产：${asset.assetName}'),
-              Text('原购入价：¥${asset.purchasePrice.toStringAsFixed(2)}'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: soldPriceController,
-                decoration: const InputDecoration(
-                  labelText: '卖出价格',
-                  prefixText: '¥ ',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                onSubmitted: (value) {
-                  final price = double.tryParse(value);
-                  if (price == null || price < 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('请输入有效的卖出价格'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-                  Navigator.pop(context, true);
-                },
-              ),
-              const SizedBox(height: 8),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: soldDate,
-                    firstDate: asset.purchaseDate,
-                    lastDate: DateTime.now(),
-                  );
-                  if (picked != null) {
-                    setDialogState(() => soldDate = picked);
-                  }
-                },
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: '出售日期',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  child: Text(
-                    '${soldDate.year}-${soldDate.month.toString().padLeft(2, '0')}-${soldDate.day.toString().padLeft(2, '0')}',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final price = double.tryParse(soldPriceController.text);
-                if (price == null || price < 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('请输入有效的卖出价格'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                Navigator.pop(context, true);
-              },
-              child: const Text('确认出售'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        await Supabase.instance.client
-            .from('assets')
-            .update({
-              'is_sold': true,
-              'sold_price': double.parse(soldPriceController.text),
-              'sold_date': soldDate.toIso8601String(),
-            })
-            .eq('id', asset.id!);
-        
-        await _loadAssets(isRefresh: true);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('资产已标记为出售'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('操作失败：$e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
   /// 格式化金额
   String _formatCurrency(double amount) {
     return '¥${amount.toStringAsFixed(2)}';
   }
 
-  /// 格式化天数（根据设置）
+  /// 格式化天数
   String _formatDays(int days) {
     final appProvider = context.watch<AppProvider>();
     return DateParser.formatDays(
@@ -675,43 +220,17 @@ class _HomeScreenState extends State<HomeScreen> {
       style: appProvider.dateFormatStyle == DateFormatStyle.days ? 'days' : 'combined',
     );
   }
-
-  /// 退出登录
-  Future<void> _signOut() async {
-    try {
-      await Supabase.instance.client.auth.signOut();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已退出登录'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('退出失败：$e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
   
   /// 获取过滤后的资产列表
   List<Asset> get _filteredAssets {
     List<Asset> filtered;
     
-    // 根据当前分栏过滤
     if (_currentCategory == 'pinned') {
       filtered = _assets.where((a) => a.isPinned).toList();
     } else {
       filtered = _assets.where((a) => a.category == _currentCategory).toList();
     }
     
-    // 排序
     filtered.sort((a, b) {
       int result;
       switch (_sortBy) {
@@ -744,7 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'virtual':
         return '虚拟资产';
       case 'subscription':
-        return '订阅服务';
+        return '限时资产';
       default:
         return '全部';
     }
@@ -764,326 +283,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return '添加日期';
     }
   }
-  
-  /// 显示排序选项对话框
-  void _showSortDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('排序方式'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 排序字段选项
-            ...['created_at', 'name', 'purchase_date', 'price'].map((field) {
-              return RadioListTile<String>(
-                title: Text(_getSortByLabel(field)),
-                value: field,
-                groupValue: _sortBy,
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _sortBy = value;
-                    });
-                    Navigator.pop(context);
-                  }
-                },
-              );
-            }),
-            const Divider(),
-            // 升降序选项
-            SwitchListTile(
-              title: const Text('升序排列'),
-              subtitle: Text(_sortAscending ? '从小到大' : '从大到小'),
-              value: _sortAscending,
-              onChanged: (value) {
-                setState(() {
-                  _sortAscending = value;
-                });
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  /// 显示添加资产对话框
-  void _showAddAssetDialog() {
-    // 重置表单
-    _nameController.clear();
-    _priceController.clear();
-    _expectedDaysController.clear();
-    _purchaseDate = DateTime.now();
-    _updatePurchaseDateText();
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '添加资产',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // 资产名称输入框
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: '资产名称',
-                    hintText: '例如：Mac Mini M4',
-                    prefixIcon: Icon(Icons.inventory_2_outlined),
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '请输入资产名称';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                // 价格输入框
-                TextFormField(
-                  controller: _priceController,
-                  decoration: const InputDecoration(
-                    labelText: '购入价格',
-                    hintText: '例如：4499',
-                    prefixIcon: Icon(Icons.attach_money),
-                    prefixText: '¥ ',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '请输入价格';
-                    }
-                    final price = double.tryParse(value);
-                    if (price == null || price <= 0) {
-                      return '请输入有效的价格';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                // 预计使用天数输入框
-                TextFormField(
-                  controller: _expectedDaysController,
-                  decoration: const InputDecoration(
-                    labelText: '预计使用时长',
-                    hintText: '例如：5 年、1 年 6 个月、1825 天',
-                    prefixIcon: Icon(Icons.timelapse),
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '请输入预计使用时长';
-                    }
-                    final days = Asset.parseExpectedDays(value);
-                    if (days <= 0) {
-                      return '请输入有效的预计使用时长';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                // 购买日期输入框
-                TextFormField(
-                  controller: _purchaseDateController,
-                  decoration: const InputDecoration(
-                    labelText: '购买日期',
-                    hintText: '例如：2026.4.5 或 2026年1月1日',
-                    prefixIcon: Icon(Icons.event),
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '请输入购买日期';
-                    }
-                    final parsed = Asset.parseCustomDate(value.trim());
-                    if (parsed == null) {
-                      return '日期格式错误';
-                    }
-                    return null;
-                  },
-                  onSaved: (value) {
-                    final parsed = Asset.parseCustomDate(value?.trim() ?? '');
-                    if (parsed != null) {
-                      _purchaseDate = parsed;
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                // 添加按钮
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      await _addAsset();
-                      if (mounted) Navigator.pop(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2196F3),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text(
-                      '添加资产',
-                      style: TextStyle(fontSize: 16),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  
-  /// 构建侧边栏
-  Widget _buildDrawer() {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // 侧边栏头部
-          DrawerHeader(
-            decoration: BoxDecoration(
-              color: Theme.of(context).primaryColor,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                const Icon(
-                  Icons.account_balance_wallet,
-                  color: Colors.white,
-                  size: 48,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  '个人资产管理',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '共 ${_assets.length} 项资产',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 置顶
-          ListTile(
-            leading: const Icon(Icons.push_pin),
-            title: const Text('置顶'),
-            selected: _currentCategory == 'pinned',
-            selectedTileColor: Colors.blue.shade50,
-            onTap: () {
-              setState(() {
-                _currentCategory = 'pinned';
-              });
-              Navigator.pop(context);
-            },
-          ),
-          const Divider(height: 1),
-          // 实体资产
-          ListTile(
-            leading: const Icon(Icons.inventory_2),
-            title: const Text('实体资产'),
-            subtitle: const Text('实物类资产'),
-            selected: _currentCategory == 'physical',
-            selectedTileColor: Colors.blue.shade50,
-            onTap: () {
-              setState(() {
-                _currentCategory = 'physical';
-              });
-              Navigator.pop(context);
-            },
-          ),
-          // 虚拟资产
-          ListTile(
-            leading: const Icon(Icons.cloud),
-            title: const Text('虚拟资产'),
-            subtitle: const Text('数字类资产'),
-            selected: _currentCategory == 'virtual',
-            selectedTileColor: Colors.blue.shade50,
-            onTap: () {
-              setState(() {
-                _currentCategory = 'virtual';
-              });
-              Navigator.pop(context);
-            },
-          ),
-          // 订阅服务
-          ListTile(
-            leading: const Icon(Icons.subscriptions),
-            title: const Text('订阅服务'),
-            subtitle: const Text('周期性续费'),
-            selected: _currentCategory == 'subscription',
-            selectedTileColor: Colors.blue.shade50,
-            onTap: () {
-              setState(() {
-                _currentCategory = 'subscription';
-              });
-              Navigator.pop(context);
-            },
-          ),
-          const Divider(height: 1),
-          // 设置
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('设置'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.pushNamed(context, '/settings');
-            },
-          ),
-          // 退出登录
-          ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('退出登录', style: TextStyle(color: Colors.red)),
-            onTap: () async {
-              Navigator.pop(context);
-              await _signOut();
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1094,28 +293,100 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(_getCategoryLabel(_currentCategory)),
         centerTitle: true,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: () => Scaffold.of(context).openDrawer(),
-          tooltip: '打开侧边栏',
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 筛选按钮
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.filter_list),
+              tooltip: '筛选',
+              onSelected: (value) => _saveCategory(value),
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'pinned', child: Text('置顶')),
+                const PopupMenuItem(value: 'physical', child: Text('实体资产')),
+                const PopupMenuItem(value: 'virtual', child: Text('虚拟资产')),
+                const PopupMenuItem(value: 'subscription', child: Text('限时资产')),
+              ],
+            ),
+            // 刷新按钮
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _loadAssets(isRefresh: true),
+              tooltip: '刷新数据',
+            ),
+          ],
         ),
+        leadingWidth: 100,
         actions: [
-          // 刷新按钮
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _loadAssets(isRefresh: true),
-            tooltip: '刷新数据',
-          ),
           // 排序按钮
-          IconButton(
+          PopupMenuButton<String>(
             icon: const Icon(Icons.sort),
-            onPressed: _showSortDialog,
             tooltip: '排序',
+            onSelected: (value) {
+              if (value == 'toggle_order') {
+                _saveSortSettings(_sortBy, !_sortAscending);
+              } else {
+                _saveSortSettings(value, _sortAscending);
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'created_at',
+                child: Row(
+                  children: [
+                    if (_sortBy == 'created_at') const Icon(Icons.check, size: 18),
+                    const SizedBox(width: 8),
+                    const Text('添加日期'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'name',
+                child: Row(
+                  children: [
+                    if (_sortBy == 'name') const Icon(Icons.check, size: 18),
+                    const SizedBox(width: 8),
+                    const Text('名称'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'purchase_date',
+                child: Row(
+                  children: [
+                    if (_sortBy == 'purchase_date') const Icon(Icons.check, size: 18),
+                    const SizedBox(width: 8),
+                    const Text('购买日期'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'price',
+                child: Row(
+                  children: [
+                    if (_sortBy == 'price') const Icon(Icons.check, size: 18),
+                    const SizedBox(width: 8),
+                    const Text('价格'),
+                  ],
+                ),
+              ),
+              const Divider(),
+              PopupMenuItem(
+                value: 'toggle_order',
+                child: Row(
+                  children: [
+                    Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 18),
+                    const SizedBox(width: 8),
+                    Text(_sortAscending ? '升序' : '降序'),
+                  ],
+                ),
+              ),
+            ],
           ),
           // 添加按钮
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => _showAddAssetDialog(),
+            onPressed: () => _showAssetForm(),
             tooltip: '添加资产',
           ),
           // 设置按钮
@@ -1126,9 +397,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      // 侧边栏
-      drawer: _buildDrawer(),
-      // Web 端宽度限制：在宽屏上限制最大宽度为 600，居中显示
       body: RefreshIndicator(
         onRefresh: () => _loadAssets(isRefresh: true),
         child: Center(
@@ -1140,149 +408,6 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 添加资产表单卡片
-                  Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-                    elevation: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '添加资产',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            // 资产名称输入框
-                            TextFormField(
-                              controller: _nameController,
-                              decoration: const InputDecoration(
-                                labelText: '资产名称',
-                                hintText: '例如：Mac Mini M4',
-                                prefixIcon: Icon(Icons.inventory_2_outlined),
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return '请输入资产名称';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 10),
-                            // 价格输入框
-                            TextFormField(
-                              controller: _priceController,
-                              decoration: const InputDecoration(
-                                labelText: '购入价格',
-                                hintText: '例如：4499',
-                                prefixIcon: Icon(Icons.attach_money),
-                                prefixText: '¥ ',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return '请输入价格';
-                                }
-                                final price = double.tryParse(value);
-                                if (price == null || price <= 0) {
-                                  return '请输入有效的价格';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 10),
-                            // 预计使用天数输入框（支持自然语言）
-                            TextFormField(
-                              controller: _expectedDaysController,
-                              decoration: const InputDecoration(
-                                labelText: '预计使用时长',
-                                hintText: '例如：5 年、1 年 6 个月、1825 天',
-                                prefixIcon: Icon(Icons.timelapse),
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return '请输入预计使用时长';
-                                }
-                                final days = Asset.parseExpectedDays(value);
-                                if (days <= 0) {
-                                  return '请输入有效的预计使用时长';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 10),
-                            // 购买日期输入框（支持手写输入）
-                            TextFormField(
-                              controller: _purchaseDateController,
-                              decoration: const InputDecoration(
-                                labelText: '购买日期',
-                                hintText: '例如：2026.4.5 或 2026年1月1日',
-                                prefixIcon: Icon(Icons.event),
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return '请输入购买日期';
-                                }
-                                final parsed = Asset.parseCustomDate(value.trim());
-                                if (parsed == null) {
-                                  return '日期格式错误，请使用如 2026-1-1、2026.1.1 或 2026年1月1日 格式';
-                                }
-                                return null;
-                              },
-                              onSaved: (value) {
-                                // validator 已经验证过，这里直接解析赋值
-                                // 如果解析失败，不允许静默通过，应该抛出异常
-                                final parsed = Asset.parseCustomDate(value?.trim() ?? '');
-                                if (parsed == null) {
-                                  throw StateError('日期解析失败，这不应该发生，因为 validator 已经验证过了');
-                                }
-                                _purchaseDate = parsed;
-                              },
-                              onFieldSubmitted: (_) => _addAsset(),
-                            ),
-                            const SizedBox(height: 12),
-                            // 添加按钮
-                            SizedBox(
-                              height: 40,
-                              child: ElevatedButton(
-                                onPressed: _addAsset,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2196F3),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                child: const Text(
-                                  '添加资产',
-                                  style: TextStyle(fontSize: 15),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   // 资产列表标题
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1301,7 +426,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // 加载状态（仅首次加载时显示全屏加载）
+                  // 加载状态
                   if (_isLoading)
                     const Center(
                       child: Padding(
@@ -1406,13 +531,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       onSelected: (value) {
                         switch (value) {
                           case 'edit':
-                            _editAsset(asset);
+                            _showAssetForm(asset: asset);
                             break;
                           case 'pin':
                             _togglePinned(asset);
-                            break;
-                          case 'sell':
-                            _sellAsset(asset);
                             break;
                           case 'delete':
                             _deleteAsset(asset);
@@ -1440,17 +562,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
-                        if (!asset.isSold)
-                          const PopupMenuItem(
-                            value: 'sell',
-                            child: Row(
-                              children: [
-                                Icon(Icons.sell, size: 18),
-                                SizedBox(width: 8),
-                                Text('出售'),
-                              ],
-                            ),
-                          ),
                         const PopupMenuItem(
                           value: 'delete',
                           child: Row(
@@ -1486,7 +597,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 6),
                 if (asset.isSold) ...[
-                  // 已出售显示
                   Row(
                     children: [
                       Expanded(
@@ -1527,8 +637,33 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
+                ] else if (asset.category == 'subscription') ...[
+                  // 限时资产显示
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInfoItem(
+                          icon: Icons.trending_up,
+                          label: '日均成本',
+                          value: _formatCurrency(asset.dailyCost),
+                          valueColor: const Color(0xFF2196F3),
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildInfoItem(
+                          icon: Icons.event_busy,
+                          label: '到期日期',
+                          value: asset.expireDate != null 
+                              ? '${asset.expireDate!.year}-${asset.expireDate!.month.toString().padLeft(2, '0')}-${asset.expireDate!.day.toString().padLeft(2, '0')}'
+                              : '未设置',
+                          valueColor: (asset.expireDate != null && asset.expireDate!.isBefore(DateTime.now())) 
+                              ? Colors.red 
+                              : Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
                 ] else ...[
-                  // 未出售显示
                   Row(
                     children: [
                       Expanded(
@@ -1609,6 +744,527 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// 显示添加/编辑资产表单
+  Future<void> _showAssetForm({Asset? asset}) async {
+    final isEditing = asset != null;
+    
+    // 表单控制器
+    final nameController = TextEditingController(text: asset?.assetName ?? '');
+    final priceController = TextEditingController(text: asset?.purchasePrice.toString() ?? '');
+    final expectedDaysController = TextEditingController(text: asset?.expectedLifespanDays.toString() ?? '');
+    
+    // 表单状态
+    String category = asset?.category ?? 'physical';
+    DateTime purchaseDate = asset?.purchaseDate ?? DateTime.now();
+    bool isPinned = asset?.isPinned ?? false;
+    bool isSold = asset?.isSold ?? false;
+    double? soldPrice = asset?.soldPrice;
+    DateTime? soldDate = asset?.soldDate;
+    DateTime? expireDate = asset?.expireDate;
+    List<Map<String, dynamic>> renewalHistory = 
+        (asset?.renewalHistory as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+    
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: true,
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) => Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 标题
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        isEditing ? '编辑资产' : '添加资产',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // 资产类型选择器（编辑模式下不可修改）
+                  if (!isEditing) ...[
+                    const Text('资产类型', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'physical', label: Text('实体'), icon: Icon(Icons.inventory_2)),
+                        ButtonSegment(value: 'virtual', label: Text('虚拟'), icon: Icon(Icons.cloud)),
+                        ButtonSegment(value: 'subscription', label: Text('限时'), icon: Icon(Icons.timer)),
+                      ],
+                      selected: {category},
+                      onSelectionChanged: (Set<String> selection) {
+                        setModalState(() {
+                          category = selection.first;
+                          // 切换类型时重置一些状态
+                          if (category == 'subscription') {
+                            isPinned = false;
+                            isSold = false;
+                            soldPrice = null;
+                            soldDate = null;
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // 资产名称
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: '资产名称',
+                      hintText: '例如：Mac Mini M4',
+                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // 购入价格
+                  TextFormField(
+                    controller: priceController,
+                    decoration: const InputDecoration(
+                      labelText: '购入价格',
+                      hintText: '例如：4499',
+                      prefixIcon: Icon(Icons.attach_money),
+                      prefixText: '¥ ',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // 预计使用时长
+                  TextFormField(
+                    controller: expectedDaysController,
+                    decoration: const InputDecoration(
+                      labelText: '预计使用时长',
+                      hintText: '例如：5 年、1 年 6 个月、1825 天',
+                      prefixIcon: Icon(Icons.timelapse),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // 购买日期
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: purchaseDate,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setModalState(() => purchaseDate = picked);
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: '购买日期',
+                        prefixIcon: Icon(Icons.event),
+                        border: OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        '${purchaseDate.year}-${purchaseDate.month.toString().padLeft(2, '0')}-${purchaseDate.day.toString().padLeft(2, '0')}',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // 实体/虚拟资产特有字段
+                  if (category != 'subscription') ...[
+                    // 是否置顶
+                    SwitchListTile(
+                      title: const Text('是否置顶'),
+                      subtitle: const Text('置顶的资产会显示在首页置顶列表'),
+                      value: isPinned,
+                      onChanged: (value) {
+                        setModalState(() => isPinned = value);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // 是否已出售（编辑模式下显示）
+                    if (isEditing) ...[
+                      SwitchListTile(
+                        title: const Text('是否已出售'),
+                        value: isSold,
+                        onChanged: (value) {
+                          setModalState(() => isSold = value);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      // 已出售的额外字段
+                      if (isSold) ...[
+                        TextFormField(
+                          initialValue: soldPrice?.toString() ?? '',
+                          decoration: const InputDecoration(
+                            labelText: '卖出价格',
+                            prefixIcon: Icon(Icons.sell),
+                            prefixText: '¥ ',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          onChanged: (value) {
+                            soldPrice = double.tryParse(value);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: soldDate ?? DateTime.now(),
+                              firstDate: purchaseDate,
+                              lastDate: DateTime.now(),
+                            );
+                            if (picked != null) {
+                              setModalState(() => soldDate = picked);
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: '出售日期',
+                              prefixIcon: Icon(Icons.event_available),
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text(
+                              soldDate != null
+                                  ? '${soldDate!.year}-${soldDate!.month.toString().padLeft(2, '0')}-${soldDate!.day.toString().padLeft(2, '0')}'
+                                  : '选择日期',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ],
+                  
+                  // 限时资产特有字段
+                  if (category == 'subscription') ...[
+                    // 过期日期
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: expireDate ?? DateTime.now().add(const Duration(days: 365)),
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(const Duration(days: 3650)),
+                        );
+                        if (picked != null) {
+                          setModalState(() => expireDate = picked);
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: '到期日期',
+                          prefixIcon: Icon(Icons.event_busy),
+                          border: OutlineInputBorder(),
+                        ),
+                        child: Text(
+                          expireDate != null
+                              ? '${expireDate!.year}-${expireDate!.month.toString().padLeft(2, '0')}-${expireDate!.day.toString().padLeft(2, '0')}'
+                              : '选择日期',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // 续费记录
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('续费记录', style: TextStyle(fontWeight: FontWeight.w500)),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.add, size: 18),
+                                  label: const Text('新增'),
+                                  onPressed: () => _showAddRenewalDialog(
+                                    context, 
+                                    renewalHistory, 
+                                    expireDate,
+                                    (newHistory, newExpireDate) {
+                                      setModalState(() {
+                                        renewalHistory = newHistory;
+                                        expireDate = newExpireDate;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (renewalHistory.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text('暂无续费记录', style: TextStyle(color: Colors.grey)),
+                              )
+                            else
+                              ...renewalHistory.map((record) => ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.replay, size: 20),
+                                title: Text('¥${record['price']?.toString() ?? '0'}'),
+                                subtitle: Text(
+                                  '${record['date'] ?? ''} · +${record['days'] ?? 0} 天',
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 18),
+                                  onPressed: () {
+                                    setModalState(() {
+                                      renewalHistory.remove(record);
+                                    });
+                                  },
+                                ),
+                              )),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // 保存按钮
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        // 验证输入
+                        if (nameController.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请输入资产名称'), backgroundColor: Colors.red),
+                          );
+                          return;
+                        }
+                        final price = double.tryParse(priceController.text);
+                        if (price == null || price <= 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请输入有效的购入价格'), backgroundColor: Colors.red),
+                          );
+                          return;
+                        }
+                        final days = Asset.parseExpectedDays(expectedDaysController.text);
+                        if (days <= 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请输入有效的预计使用时长'), backgroundColor: Colors.red),
+                          );
+                          return;
+                        }
+                        
+                        Navigator.pop(context);
+                        
+                        // 保存数据
+                        try {
+                          final currentUser = Supabase.instance.client.auth.currentUser;
+                          if (currentUser == null) return;
+                          
+                          final assetData = {
+                            'user_id': currentUser.id,
+                            'asset_name': nameController.text.trim(),
+                            'purchase_price': price,
+                            'expected_lifespan_days': days,
+                            'purchase_date': purchaseDate.toIso8601String(),
+                            'is_pinned': isPinned,
+                            'is_sold': isSold,
+                            'category': category,
+                            if (soldPrice != null && isSold) 'sold_price': soldPrice,
+                            if (soldDate != null && isSold) 'sold_date': soldDate.toIso8601String(),
+                            if (expireDate != null) 'expire_date': expireDate!.toIso8601String(),
+                            'renewal_history': renewalHistory,
+                          };
+                          
+                          if (isEditing) {
+                            await Supabase.instance.client
+                                .from('assets')
+                                .update(assetData)
+                                .eq('id', asset!.id!);
+                          } else {
+                            await Supabase.instance.client
+                                .from('assets')
+                                .insert(assetData);
+                          }
+                          
+                          await _loadAssets(isRefresh: true);
+                          
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(isEditing ? '资产已更新' : '资产添加成功'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('保存失败：$e'), backgroundColor: Colors.red),
+                            );
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2196F3),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Text(isEditing ? '保存修改' : '添加资产'),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// 显示添加续费记录对话框
+  void _showAddRenewalDialog(
+    BuildContext context,
+    List<Map<String, dynamic>> currentHistory,
+    DateTime? currentExpireDate,
+    Function(List<Map<String, dynamic>>, DateTime?) onUpdate,
+  ) {
+    final priceController = TextEditingController();
+    final daysController = TextEditingController();
+    DateTime renewalDate = DateTime.now();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('新增续费记录'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: priceController,
+              decoration: const InputDecoration(
+                labelText: '续费金额',
+                prefixText: '¥ ',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: daysController,
+              decoration: const InputDecoration(
+                labelText: '增加天数',
+                hintText: '例如：365',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: renewalDate,
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (picked != null) {
+                  renewalDate = picked;
+                }
+              },
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: '付费日期',
+                  border: OutlineInputBorder(),
+                ),
+                child: Text(
+                  '${renewalDate.year}-${renewalDate.month.toString().padLeft(2, '0')}-${renewalDate.day.toString().padLeft(2, '0')}',
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final price = double.tryParse(priceController.text);
+              final days = int.tryParse(daysController.text);
+              
+              if (price == null || price <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('请输入有效的金额'), backgroundColor: Colors.red),
+                );
+                return;
+              }
+              if (days == null || days <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('请输入有效的天数'), backgroundColor: Colors.red),
+                );
+                return;
+              }
+              
+              final newRecord = {
+                'date': '${renewalDate.year}-${renewalDate.month.toString().padLeft(2, '0')}-${renewalDate.day.toString().padLeft(2, '0')}',
+                'price': price,
+                'days': days,
+              };
+              
+              final newHistory = [...currentHistory, newRecord];
+              
+              // 计算新的过期日期
+              DateTime newExpireDate;
+              if (currentExpireDate != null && currentExpireDate.isAfter(DateTime.now())) {
+                newExpireDate = currentExpireDate.add(Duration(days: days));
+              } else {
+                newExpireDate = DateTime.now().add(Duration(days: days));
+              }
+              
+              onUpdate(newHistory, newExpireDate);
+              Navigator.pop(context);
+            },
+            child: const Text('添加'),
+          ),
+        ],
+      ),
     );
   }
 }
