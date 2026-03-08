@@ -7,6 +7,7 @@ import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/app_provider.dart';
 
@@ -21,6 +22,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isExporting = false;
   bool _isImporting = false;
   bool _importExportLocked = false; // 防抖保护
+  
+  // 默认启动分栏设置
+  String _defaultCategory = 'pinned';
+  final String _prefKey = 'default_startup_category';
+  
+  // 分栏选项
+  final List<Map<String, String>> _categoryOptions = [
+    {'value': 'pinned', 'label': '置顶'},
+    {'value': 'physical', 'label': '实体资产'},
+    {'value': 'virtual', 'label': '虚拟资产'},
+    {'value': 'subscription', 'label': '订阅服务'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDefaultCategory();
+  }
+  
+  /// 加载默认启动分栏设置
+  Future<void> _loadDefaultCategory() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _defaultCategory = prefs.getString(_prefKey) ?? 'pinned';
+    });
+  }
+  
+  /// 保存默认启动分栏设置
+  Future<void> _saveDefaultCategory(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefKey, value);
+    setState(() {
+      _defaultCategory = value;
+    });
+  }
 
   /// 格式化日期为 yyyy-MM-dd 格式
   String _formatDate(DateTime date) {
@@ -353,6 +389,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const Divider(height: 1),
               
+              // 默认启动分栏
+              ListTile(
+                leading: const Icon(Icons.folder_open),
+                title: const Text('默认启动分栏'),
+                subtitle: Text(_getCategoryLabel(_defaultCategory)),
+                trailing: DropdownButton<String>(
+                  value: _defaultCategory,
+                  underline: const SizedBox(),
+                  items: _categoryOptions.map((option) {
+                    return DropdownMenuItem<String>(
+                      value: option['value'],
+                      child: Text(option['label']!),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      _saveDefaultCategory(newValue);
+                    }
+                  },
+                ),
+              ),
+              const Divider(height: 1),
+              
               const SizedBox(height: 16),
               
               // 数据管理分区
@@ -470,6 +529,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case AppTheme.green:
         return '复古护眼';
     }
+  }
+  
+  /// 获取分栏显示名称
+  String _getCategoryLabel(String value) {
+    for (final option in _categoryOptions) {
+      if (option['value'] == value) {
+        return option['label']!;
+      }
+    }
+    return '置顶';
   }
 
   /// 显示主题选择对话框
