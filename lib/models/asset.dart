@@ -1,10 +1,14 @@
+import 'dart:convert';
 
-
+import 'package:isar/isar.dart';
 import 'package:intl/intl.dart';
+
+part 'asset.g.dart';
 
 /// 资产模型 - 用于记录个人资产折旧与价值平摊
 /// 数据库字段对应：
-/// - id: UUID 主键
+/// - isarId: Isar 本地自增主键（64位整数）
+/// - id: UUID（用于与远端服务器映射同步）
 /// - user_id: 用户 ID（关联 auth.users）
 /// - asset_name: 资产名称
 /// - purchase_price: 购入价格
@@ -17,26 +21,61 @@ import 'package:intl/intl.dart';
 /// - category: 资产分类 (physical, virtual, subscription)
 /// - expire_date: 过期日期（用于订阅类资产）
 /// - renewal_history: 续费历史记录
-/// - tags: 自定义标签（JSONB）
+/// - tags: 自定义标签
 /// - created_at: 创建时间
+@collection
 class Asset {
-  final String? id;
-  final String? userId; // 用户 ID，用于多用户数据隔离
-  final String assetName; // 资产名称
-  final double purchasePrice; // 购入价格
-  final int expectedLifespanDays; // 预计使用天数
-  final DateTime purchaseDate; // 购买日期
-  final bool isPinned; // 是否置顶
-  final bool isSold; // 是否已出售
-  final double? soldPrice; // 出售价格
-  final DateTime? soldDate; // 出售日期
-  final String category; // 资产分类：physical(实体), virtual(虚拟), subscription(订阅)
-  final DateTime? expireDate; // 过期日期（主要用于订阅类资产）
-  final List<dynamic> renewalHistory; // 续费历史记录
-  final List<String> tags; // 自定义标签
-  final DateTime createdAt; // 创建时间
+  /// Isar 本地自增主键（64位整数）
+  Id isarId = Isar.autoIncrement;
+
+  /// UUID 主键（用于与远端服务器如 PocketBase 进行映射同步）
+  @Index()
+  String? id;
+
+  /// 用户 ID，用于多用户数据隔离
+  String? userId;
+
+  /// 资产名称
+  String assetName;
+
+  /// 购入价格
+  double purchasePrice;
+
+  /// 预计使用天数
+  int expectedLifespanDays;
+
+  /// 购买日期
+  DateTime purchaseDate;
+
+  /// 是否置顶
+  bool isPinned;
+
+  /// 是否已出售
+  bool isSold;
+
+  /// 出售价格
+  double? soldPrice;
+
+  /// 出售日期
+  DateTime? soldDate;
+
+  /// 资产分类：physical(实体), virtual(虚拟), subscription(订阅)
+  String category;
+
+  /// 过期日期（主要用于订阅类资产）
+  DateTime? expireDate;
+
+  /// 续费历史记录（JSON 字符串存储）
+  String renewalHistoryJson;
+
+  /// 自定义标签
+  List<String> tags;
+
+  /// 创建时间
+  DateTime createdAt;
 
   Asset({
+    this.isarId = Isar.autoIncrement,
     this.id,
     this.userId,
     required this.assetName,
@@ -50,11 +89,79 @@ class Asset {
     this.category = 'physical',
     this.expireDate,
     List<dynamic>? renewalHistory,
+    this.tags = const [],
+    required this.createdAt,
+  }) : renewalHistoryJson = _encodeRenewalHistory(renewalHistory ?? []);
+
+  /// 创建 Asset 的便捷工厂方法（自动设置创建时间）
+  factory Asset.create({
+    Id? isarId,
+    String? id,
+    String? userId,
+    required String assetName,
+    required double purchasePrice,
+    required int expectedLifespanDays,
+    required DateTime purchaseDate,
+    bool isPinned = false,
+    bool isSold = false,
+    double? soldPrice,
+    DateTime? soldDate,
+    String category = 'physical',
+    DateTime? expireDate,
+    List<dynamic>? renewalHistory,
     List<String>? tags,
     DateTime? createdAt,
-  })  : renewalHistory = renewalHistory ?? [],
-        tags = tags ?? [],
-        createdAt = createdAt ?? DateTime.now();
+  }) {
+    return Asset(
+      isarId: isarId ?? Isar.autoIncrement,
+      id: id,
+      userId: userId,
+      assetName: assetName,
+      purchasePrice: purchasePrice,
+      expectedLifespanDays: expectedLifespanDays,
+      purchaseDate: purchaseDate,
+      isPinned: isPinned,
+      isSold: isSold,
+      soldPrice: soldPrice,
+      soldDate: soldDate,
+      category: category,
+      expireDate: expireDate,
+      renewalHistory: renewalHistory,
+      tags: tags ?? const [],
+      createdAt: createdAt ?? DateTime.now(),
+    );
+  }
+
+  /// 解码续费历史记录
+  /// 使用 @ignore 注解告诉 Isar 忽略此 getter/setter
+  @ignore
+  List<dynamic> get renewalHistory => _decodeRenewalHistory(renewalHistoryJson);
+
+  /// 设置续费历史记录
+  @ignore
+  set renewalHistory(List<dynamic> value) {
+    renewalHistoryJson = _encodeRenewalHistory(value);
+  }
+
+  /// 编码续费历史记录为 JSON 字符串
+  static String _encodeRenewalHistory(List<dynamic> history) {
+    if (history.isEmpty) return '[]';
+    try {
+      return jsonEncode(history);
+    } catch (_) {
+      return '[]';
+    }
+  }
+
+  /// 解码续费历史记录
+  static List<dynamic> _decodeRenewalHistory(String json) {
+    if (json.isEmpty || json == '[]') return [];
+    try {
+      return jsonDecode(json) as List<dynamic>;
+    } catch (_) {
+      return [];
+    }
+  }
 
   /// 计算日均成本
   double get dailyCost {
@@ -163,6 +270,7 @@ class Asset {
 
   /// 复制并修改
   Asset copyWith({
+    Id? isarId,
     String? id,
     String? userId,
     String? assetName,
@@ -179,6 +287,7 @@ class Asset {
     List<String>? tags,
   }) {
     return Asset(
+      isarId: isarId ?? this.isarId,
       id: id ?? this.id,
       userId: userId ?? this.userId,
       assetName: assetName ?? this.assetName,
@@ -199,7 +308,7 @@ class Asset {
 
   @override
   String toString() {
-    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory, tags: $tags)';
+    return 'Asset(isarId: $isarId, id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory, tags: $tags)';
   }
 
   /// 解析预计使用天数，支持自然语言

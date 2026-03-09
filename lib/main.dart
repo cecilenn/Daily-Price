@@ -1,19 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/app_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/local_db_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化 Supabase
-  await Supabase.initialize(
-    url: 'https://yfkzdoputwygnfqwtrck.supabase.co',
-    anonKey: 'sb_publishable_btYCq4AdFM7jKC2l1ridDg_mQRE2ws5',
-  );
+  // 初始化本地数据库
+  await LocalDbService().init();
 
   runApp(
     ChangeNotifierProvider(
@@ -146,6 +143,7 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
 }
 
 /// 认证包装器 - 根据登录状态决定显示哪个页面
+/// TODO: 替换为 PocketBase 认证逻辑
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -154,16 +152,23 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  late final Stream<AuthState> _authStateStream;
+  // TODO: 替换为 PocketBase 认证状态流
+  // late final Stream<AuthState> _authStateStream;
 
   @override
   void initState() {
     super.initState();
-    _authStateStream = Supabase.instance.client.auth.onAuthStateChange;
+    // TODO: 替换为 PocketBase 认证状态监听
+    // _authStateStream = Supabase.instance.client.auth.onAuthStateChange;
   }
 
   @override
   Widget build(BuildContext context) {
+    // TODO: 替换为 PocketBase 认证逻辑
+    // 暂时直接显示主页，后续添加 PocketBase 认证
+    return const HomeScreen();
+    
+    /* 原 Supabase 认证逻辑
     return StreamBuilder<AuthState>(
       stream: _authStateStream,
       builder: (context, snapshot) {
@@ -179,5 +184,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
       },
     );
+    */
   }
 }

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/app_provider.dart';
+import '../services/local_db_service.dart';
 
 /// 首页 - 资产列表与管理页面
 class HomeScreen extends StatefulWidget {
@@ -34,23 +34,46 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _prefKeySortBy = 'home_sort_by';
   static const String _prefKeySortAscending = 'home_sort_ascending';
   static const String _customTabsPrefKey = 'custom_tabs';
+  static const String _defaultStartupCategoryKey = 'default_startup_category';
 
   @override
   void initState() {
     super.initState();
-    _loadPreferences();
-    _loadCustomTabs();
-    _loadAssets();
+    _initData();
+  }
+  
+  /// 初始化数据：确保顺序加载，先加载偏好设置再加载资产
+  Future<void> _initData() async {
+    // 1. 首先加载偏好设置（包含默认启动分栏）
+    await _loadPreferences();
+    // 2. 然后加载自定义分栏
+    await _loadCustomTabs();
+    // 3. 最后加载资产数据
+    await _loadAssets();
   }
   
   /// 从 SharedPreferences 加载用户偏好设置
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _currentCategory = prefs.getString(_prefKeyCategory) ?? 'pinned';
-      _sortBy = prefs.getString(_prefKeySortBy) ?? 'created_at';
-      _sortAscending = prefs.getBool(_prefKeySortAscending) ?? false;
-    });
+    
+    // 优先读取用户上次选择的分栏，如果没有则使用默认启动分栏
+    final savedCategory = prefs.getString(_prefKeyCategory);
+    final defaultStartupCategory = prefs.getString(_defaultStartupCategoryKey);
+    
+    // 如果有保存的分栏选择，使用保存的；否则使用默认启动分栏；最后才使用 'pinned'
+    final category = savedCategory ?? defaultStartupCategory ?? 'pinned';
+    final sortBy = prefs.getString(_prefKeySortBy) ?? 'created_at';
+    final sortAscending = prefs.getBool(_prefKeySortAscending) ?? false;
+    
+    if (mounted) {
+      setState(() {
+        _currentCategory = category;
+        _sortBy = sortBy;
+        _sortAscending = sortAscending;
+      });
+    }
+    
+    debugPrint('[HomeScreen] 加载偏好设置: category=$category, sortBy=$sortBy, sortAscending=$sortAscending');
   }
   
   /// 保存当前分栏设置
@@ -81,18 +104,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// 从 Supabase 加载资产数据
+  /// 加载资产数据
   Future<void> _loadAssets({bool isRefresh = false}) async {
-    final currentUser = Supabase.instance.client.auth.currentUser;
-    if (currentUser == null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = '请先登录';
-        _assets = [];
-      });
-      return;
-    }
-
     if (_assets.isEmpty) {
       setState(() {
         _isLoading = true;
@@ -101,25 +114,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      final response = await Supabase.instance.client
-          .from('assets')
-          .select()
-          .eq('user_id', currentUser.id)
-          .order('is_pinned', ascending: false)
-          .order('created_at', ascending: false);
-
-      if (response.isNotEmpty) {
-        final latestAsset = Asset.fromJson(response.first);
-        if (mounted) {
-          context.read<AppProvider>().updateSyncTime(latestAsset.createdAt);
-        }
-      }
-
+      // 从本地数据库获取所有资产
+      final assets = await LocalDbService().getAllAssets();
+      
       if (mounted) {
         setState(() {
-          _assets = (response as List).map((item) => Asset.fromJson(item)).toList();
+          _assets = assets;
           _isLoading = false;
         });
+        
+        // 更新同步时间（使用最新资产的创建时间）
+        if (assets.isNotEmpty) {
+          assets.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          if (mounted) {
+            context.read<AppProvider>().updateSyncTime(assets.first.createdAt);
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -142,10 +152,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 切换置顶状态
   Future<void> _togglePinned(Asset asset) async {
     try {
-      await Supabase.instance.client
-          .from('assets')
-          .update({'is_pinned': !asset.isPinned})
-          .eq('id', asset.id!);
+      // 更新置顶状态并保存到本地数据库
+      final updatedAsset = asset.copyWith(isPinned: !asset.isPinned);
+      await LocalDbService().saveAsset(updatedAsset);
       
       await _loadAssets(isRefresh: true);
       
@@ -192,10 +201,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirmed == true) {
       try {
-        await Supabase.instance.client
-            .from('assets')
-            .delete()
-            .eq('id', asset.id!);
+        // 从本地数据库删除资产
+        await LocalDbService().deleteAsset(asset.isarId);
         
         await _loadAssets(isRefresh: true);
         
@@ -245,8 +252,8 @@ class _HomeScreenState extends State<HomeScreen> {
       filtered = _assets.where((a) => a.isPinned).toList();
     } else if (_currentCategory.startsWith('custom_')) {
       // 自定义分栏：根据 tags 过滤
-      final tabName = _currentCategory.substring(7); // 移除 'custom_' 前缀
-      filtered = _assets.where((a) => a.tags.contains(tabName)).toList();
+      // 注意：tags 中存储的是 'custom_xxx' 格式，与 _currentCategory 格式一致
+      filtered = _assets.where((a) => a.tags.contains(_currentCategory)).toList();
     } else {
       filtered = _assets.where((a) => a.category == _currentCategory).toList();
     }
@@ -314,7 +321,11 @@ class _HomeScreenState extends State<HomeScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: Text(_getCategoryLabel(_currentCategory)),
+        title: Text(
+          _getCategoryLabel(_currentCategory),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         centerTitle: true,
         elevation: 0,
         leading: Row(
@@ -343,7 +354,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           const Icon(Icons.label_outline, size: 18),
                           const SizedBox(width: 8),
-                          Text(tab),
+                          Flexible(
+                            child: Text(
+                              tab,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                     ));
@@ -563,6 +580,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 fontWeight: FontWeight.bold,
                                 decoration: asset.isSold ? TextDecoration.lineThrough : null,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -955,16 +974,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       spacing: 8,
                       runSpacing: 4,
                       children: _customTabs.map((tab) {
-                        final isSelected = selectedTags.contains(tab);
+                        // 标签存储格式为 'custom_xxx'，与分栏值保持一致
+                        final tagValue = 'custom_$tab';
+                        final isSelected = selectedTags.contains(tagValue);
                         return FilterChip(
-                          label: Text(tab),
+                          label: Text(
+                            tab,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           selected: isSelected,
                           onSelected: (selected) {
                             setModalState(() {
                               if (selected) {
-                                selectedTags.add(tab);
+                                selectedTags.add(tagValue);
                               } else {
-                                selectedTags.remove(tab);
+                                selectedTags.remove(tagValue);
                               }
                             });
                           },
@@ -1153,43 +1178,34 @@ class _HomeScreenState extends State<HomeScreen> {
                         
                         Navigator.pop(context);
                         
-                        // 保存数据
+                        // 保存数据到本地数据库
                         try {
-                          final currentUser = Supabase.instance.client.auth.currentUser;
-                          if (currentUser == null) return;
-                          
                           // 计算限时资产的到期日期
                           DateTime? calculatedExpireDate = expireDate;
                           if (category == 'subscription') {
                             calculatedExpireDate = purchaseDate.add(Duration(days: days));
                           }
                           
-                          final assetData = {
-                            'user_id': currentUser.id,
-                            'asset_name': nameController.text.trim(),
-                            'purchase_price': price,
-                            'expected_lifespan_days': days,
-                            'purchase_date': purchaseDate.toIso8601String(),
-                            'is_pinned': isPinned,
-                            'is_sold': isSold,
-                            'category': category,
-                            if (soldPrice != null && isSold) 'sold_price': soldPrice,
-                            if (soldDate != null && isSold) 'sold_date': soldDate!.toIso8601String(),
-                            if (calculatedExpireDate != null) 'expire_date': calculatedExpireDate!.toIso8601String(),
-                            'renewal_history': renewalHistory,
-                            'tags': selectedTags,
-                          };
+                          // 构建资产对象
+                          final newAsset = Asset.create(
+                            isarId: isEditing ? asset!.isarId : null,
+                            id: isEditing ? asset!.id : null,
+                            assetName: nameController.text.trim(),
+                            purchasePrice: price,
+                            expectedLifespanDays: days,
+                            purchaseDate: purchaseDate,
+                            isPinned: isPinned,
+                            isSold: isSold,
+                            soldPrice: isSold ? soldPrice : null,
+                            soldDate: isSold ? soldDate : null,
+                            category: category,
+                            expireDate: calculatedExpireDate,
+                            renewalHistory: renewalHistory,
+                            tags: selectedTags,
+                          );
                           
-                          if (isEditing) {
-                            await Supabase.instance.client
-                                .from('assets')
-                                .update(assetData)
-                                .eq('id', asset!.id!);
-                          } else {
-                            await Supabase.instance.client
-                                .from('assets')
-                                .insert(assetData);
-                          }
+                          // 保存到本地数据库
+                          await LocalDbService().saveAsset(newAsset);
                           
                           await _loadAssets(isRefresh: true);
                           

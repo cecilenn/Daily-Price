@@ -1,15 +1,18 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart';
 import '../models/asset.dart';
 import '../providers/app_provider.dart';
+import '../services/local_db_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -103,6 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          maxLength: 20,
           decoration: const InputDecoration(
             hintText: '输入分栏名称，如"工作"、"闲置"',
             border: OutlineInputBorder(),
@@ -114,7 +118,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            onPressed: () {
+              final input = controller.text.trim();
+              if (input.isEmpty) {
+                ScaffoldMessenger.of(context).clearSnackBars();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('名称不能为空'),
+                    backgroundColor: Colors.red,
+                    duration: Duration(milliseconds: 1000),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context, input);
+            },
             child: const Text('添加'),
           ),
         ],
@@ -133,190 +151,194 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
   
-  /// 批量管理资产标签（双向同步：添加/取消）
+  /// 批量管理资产标签（双向同步：添加/移除）
+  /// 支持数据回显：已包含该标签的资产会预先选中
+  /// 支持双向同步：根据复选框状态与数据库状态对比，自动增删标签
   Future<void> _batchAddTagToAssets(String tagName) async {
-    // 获取当前用户所有资产
-    final currentUser = Supabase.instance.client.auth.currentUser;
-    if (currentUser == null) {
-      _showError('请先登录');
-      return;
-    }
-
-    try {
-      // 从 Supabase 获取所有资产
-      final response = await Supabase.instance.client
-          .from('assets')
-          .select('id, asset_name, tags')
-          .eq('user_id', currentUser.id)
-          .order('created_at', ascending: false);
-
-      if (response.isEmpty) {
-        _showError('暂无资产可管理标签');
-        return;
-      }
-
-      final List<Map<String, dynamic>> assets = (response as List)
-          .map((item) => {
-                'id': item['id'],
-                'asset_name': item['asset_name'],
-                'tags': List<String>.from(item['tags'] ?? []),
-              })
-          .toList();
-
-      // 初始化选中状态：已有该标签的资产默认选中
-      final Set<String> selectedAssetIds = {};
-      for (final asset in assets) {
-        final tags = asset['tags'] as List<String>;
-        if (tags.contains(tagName)) {
-          selectedAssetIds.add(asset['id'] as String);
+    print('========== [UI] 准备弹窗，开始获取数据 ==========');
+    
+    final db = LocalDbService();
+    final customTagValue = 'custom_$tagName';
+    
+    // 【第一步：在弹窗前，先获取所有资产并实现初始状态回显】
+    final assets = await db.getAllAssets();
+    final selectedIds = <String>{};
+    
+    // 核心回显逻辑：如果资产的 tags 包含当前标签，预先打上对勾
+    for (final asset in assets) {
+      if (asset.tags.contains(customTagValue)) {
+        final localId = asset.id;
+        if (localId != null) {
+          selectedIds.add(localId);
         }
       }
-
-      // 保存初始状态用于对比
-      final Set<String> initialSelectedIds = Set.from(selectedAssetIds);
-
-      // 显示选择对话框
-      await showDialog(
-        context: context,
-        builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: Text('管理标签「$tagName」'),
-            content: SizedBox(
-              width: 400,
-              height: MediaQuery.of(context).size.height * 0.6,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '勾选添加标签，取消勾选移除标签：',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: assets.length,
-                      itemBuilder: (context, index) {
-                        final asset = assets[index];
-                        final assetId = asset['id'] as String;
-                        final assetName = asset['asset_name'] as String;
-                        final tags = asset['tags'] as List<String>;
-                        final isSelected = selectedAssetIds.contains(assetId);
-
-                        return CheckboxListTile(
-                          controlAffinity: ListTileControlAffinity.leading,
-                          value: isSelected,
-                          onChanged: (checked) {
-                            setDialogState(() {
-                              if (checked == true) {
-                                selectedAssetIds.add(assetId);
-                              } else {
-                                selectedAssetIds.remove(assetId);
-                              }
-                            });
-                          },
-                          title: Text(assetName),
-                          subtitle: tags.isNotEmpty
-                              ? Text(
-                                  '标签: ${tags.join(', ')}',
-                                  style: const TextStyle(fontSize: 12),
-                                )
-                              : null,
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-
-                  // 对比初始状态和最终状态，找出变更
-                  final List<Map<String, dynamic>> toAdd = []; // 需要添加标签的资产
-                  final List<Map<String, dynamic>> toRemove = []; // 需要移除标签的资产
-
-                  for (final asset in assets) {
-                    final assetId = asset['id'] as String;
-                    final existingTags = asset['tags'] as List<String>;
-                    final wasSelected = initialSelectedIds.contains(assetId);
-                    final isNowSelected = selectedAssetIds.contains(assetId);
-
-                    if (!wasSelected && isNowSelected) {
-                      // 原来没有勾，现在勾了 -> 添加标签
-                      if (!existingTags.contains(tagName)) {
-                        toAdd.add({
-                          'id': assetId,
-                          'newTags': [...existingTags, tagName],
-                        });
-                      }
-                    } else if (wasSelected && !isNowSelected) {
-                      // 原来勾了，现在取消了 -> 移除标签
-                      if (existingTags.contains(tagName)) {
-                        toRemove.add({
-                          'id': assetId,
-                          'newTags': existingTags.where((t) => t != tagName).toList(),
-                        });
-                      }
-                    }
-                  }
-
-                  // 批量更新数据库
-                  int addedCount = 0;
-                  int removedCount = 0;
-
-                  for (final item in toAdd) {
-                    await Supabase.instance.client
-                        .from('assets')
-                        .update({'tags': item['newTags']})
-                        .eq('id', item['id']);
-                    addedCount++;
-                  }
-
-                  for (final item in toRemove) {
-                    await Supabase.instance.client
-                        .from('assets')
-                        .update({'tags': item['newTags']})
-                        .eq('id', item['id']);
-                    removedCount++;
-                  }
-
-                  if (mounted) {
-                    final messages = <String>[];
-                    if (addedCount > 0) messages.add('添加 $addedCount 个');
-                    if (removedCount > 0) messages.add('移除 $removedCount 个');
-                    
-                    if (messages.isEmpty) {
-                      _showSuccess('无变更');
-                    } else {
-                      _showSuccess('已${messages.join('，')}资产的标签「$tagName」');
-                    }
-                  }
-                },
-                child: const Text('确认'),
-              ),
-            ],
-          ),
-        ),
-      );
-    } catch (e) {
-      _showError('获取资产列表失败: $e');
     }
+    
+    print('========== [UI] 数据回显完成，已预选 ${selectedIds.length} 个资产 ==========');
+
+    // 【第二步：显示资产选择对话框】
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('管理标签 - $tagName'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: assets.isEmpty
+                ? const Text('暂无资产数据')
+                : StatefulBuilder(
+                    builder: (context, setDialogState) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 提示信息
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              '勾选添加标签，取消勾选移除标签',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                          ),
+                          // 全选/取消全选按钮
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    if (selectedIds.length == assets.length) {
+                                      selectedIds.clear();
+                                    } else {
+                                      selectedIds.clear();
+                                      for (final a in assets) {
+                                        final localId = a.id;
+                                        if (localId != null) {
+                                          selectedIds.add(localId);
+                                        }
+                                      }
+                                    }
+                                  });
+                                },
+                                child: Text(selectedIds.length == assets.length 
+                                    ? '取消全选' : '全选'),
+                              ),
+                              const Spacer(),
+                              Text('已选: ${selectedIds.length}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                            ],
+                          ),
+                          const Divider(height: 1),
+                          // 资产列表
+                          Expanded(
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: assets.length,
+                              itemBuilder: (ctx, i) {
+                                final asset = assets[i];
+                                final String displayName = (asset.assetName == null || asset.assetName!.trim().isEmpty) 
+                                    ? '未命名资产_${asset.id}' 
+                                    : asset.assetName!;
+                                
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  color: Colors.grey[200],
+                                  child: CheckboxListTile(
+                                    title: Text(
+                                      displayName,
+                                      style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.bold),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    value: asset.id != null ? selectedIds.contains(asset.id) : false,
+                                    onChanged: (bool? val) {
+                                      if (val == null) return;
+                                      
+                                      final localId = asset.id;
+                                      if (localId == null) return;
+                                      
+                                      setDialogState(() {
+                                        if (val) {
+                                          selectedIds.add(localId);
+                                        } else {
+                                          selectedIds.remove(localId);
+                                        }
+                                      });
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () async {
+                int updateCount = 0;
+                
+                // 【第二步：双向同步逻辑 - 遍历所有资产进行比对】
+                for (final asset in assets) {
+                  if (asset.id == null) continue;
+                  
+                  final bool isSelected = selectedIds.contains(asset.id);
+                  final bool hasTag = asset.tags.contains(customTagValue);
+                  bool changed = false;
+                  
+                  // 创建标签副本进行修改
+                  final updatedTags = List<String>.from(asset.tags);
+                  
+                  if (isSelected && !hasTag) {
+                    // 场景 1：用户勾选了，但原本没有标签 -> 执行新增
+                    updatedTags.add(customTagValue);
+                    changed = true;
+                  } else if (!isSelected && hasTag) {
+                    // 场景 2：用户取消了勾选，但原本有标签 -> 执行移除
+                    updatedTags.remove(customTagValue);
+                    changed = true;
+                  }
+                  
+                  // 只有发生变化的资产，才执行底层 Upsert 减少性能损耗
+                  if (changed) {
+                    final updatedAsset = asset.copyWith(tags: updatedTags);
+                    await db.saveAsset(updatedAsset);
+                    updateCount++;
+                  }
+                }
+                
+                // 收尾：关闭弹窗，显示结果，刷新外层 UI
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).clearSnackBars();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('成功同步 $updateCount 个资产的标签状态')),
+                  );
+                  setState(() {}); // 刷新外层 UI
+                }
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
-  /// 删除自定义分栏
+  /// 删除自定义分栏（含级联清洗：同步移除资产身上的废弃标签）
   Future<void> _removeCustomTab(String tab) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除'),
-        content: Text('确定要删除分栏"$tab"吗？\n已标记该分栏的资产不会被删除。'),
+        content: Text('确定要删除分栏"$tab"吗？\n该分栏标签将从所有资产中移除。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -343,8 +365,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
       
+      // 保存更新后的分栏配置
       await _saveCustomTabs(newTabs);
-      _showSuccess('已删除分栏"$tab"');
+      
+      // 【级联清洗】：从所有资产中移除该废弃标签
+      final db = LocalDbService();
+      final allAssets = await db.getAllAssets();
+      int cleanCount = 0;
+      
+      for (final asset in allAssets) {
+        if (asset.tags.contains(customTabValue)) {
+          // 创建标签副本并移除废弃标签
+          final updatedTags = List<String>.from(asset.tags);
+          updatedTags.remove(customTabValue);
+          
+          // 重新写入数据库覆盖
+          final updatedAsset = asset.copyWith(tags: updatedTags);
+          await db.saveAsset(updatedAsset);
+          cleanCount++;
+        }
+      }
+      
+      print('========== [级联清洗] 已清除 $cleanCount 个资产身上的废弃标签: $customTabValue ==========');
+      
+      if (cleanCount > 0) {
+        _showSuccess('已删除分栏"$tab"，并从 $cleanCount 个资产中移除该标签');
+      } else {
+        _showSuccess('已删除分栏"$tab"');
+      }
     }
   }
 
@@ -387,10 +435,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// 显示错误提示
   void _showError(String message) {
     if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
           backgroundColor: Colors.red,
+          duration: const Duration(milliseconds: 1000),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -399,19 +450,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// 显示成功提示
   void _showSuccess(String message) {
     if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
           backgroundColor: Colors.green,
+          duration: const Duration(milliseconds: 1000),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
   }
 
   /// 导出 CSV 文件逻辑
+  /// 使用 file_picker saveFile 保存到本地下载目录
   Future<void> _exportToCSV() async {
     // 防抖保护
-    if (_importExportLocked) return;
+    if (_importExportLocked) {
+      debugPrint('[导出] 操作被锁定，跳过');
+      return;
+    }
     
     setState(() {
       _isExporting = true;
@@ -419,82 +477,161 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     try {
-      // 获取当前登录用户
-      final currentUser = Supabase.instance.client.auth.currentUser;
-      if (currentUser == null) {
-        _showError('请先登录');
-        return;
-      }
-
-      // 1. 从 Supabase 拉取当前用户的资产数据
-      final response = await Supabase.instance.client
-          .from('assets')
-          .select()
-          .eq('user_id', currentUser.id)
-          .order('created_at', ascending: false);
-
-      // 2. 将 raw data 转化为 Asset 对象列表
-      final List<Asset> assets = (response as List)
-          .map((item) => Asset.fromJson(item))
-          .toList();
-
+      debugPrint('[导出] 开始导出流程...');
+      
+      // 从本地数据库获取所有资产
+      final assets = await LocalDbService().getAllAssets();
+      debugPrint('[导出] 获取到 ${assets.length} 条资产');
+      
       if (assets.isEmpty) {
-        _showError('没有可导出的资产数据');
+        _showError('暂无数据可导出');
         return;
       }
 
-      // 3. 构建 CSV 表头和数据行
-      // 表头顺序：['ID', '资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '资产类型', '过期日期', '创建时间']
-      final List<List<dynamic>> csvData = [
-        ['ID', '资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '资产类型', '过期日期', '创建时间'],
-        ...assets.map((asset) => [
-          asset.id ?? '', // ID 作为第一列，用于 upsert 去重
-          asset.assetName,
-          asset.purchasePrice.toStringAsFixed(2),
-          asset.expectedLifespanDays.toString(),
-          _formatDate(asset.purchaseDate),
-          asset.isPinned ? '是' : '否',
-          asset.isSold ? '是' : '否',
-          asset.soldPrice != null ? asset.soldPrice!.toStringAsFixed(2) : '',
-          asset.soldDate != null ? _formatDate(asset.soldDate!) : '',
-          asset.category, // 资产类型
-          asset.expireDate != null ? _formatDate(asset.expireDate!) : '',
-          _formatDate(asset.createdAt),
-        ]),
+      // 构建 CSV 数据 - 使用规范的 Header
+      final csvData = <List<dynamic>>[
+        // CSV 表头（与 Asset 模型字段严格对应）
+        [
+          'id',              // UUID
+          'asset_name',      // 资产名称
+          'purchase_price',  // 购入价格
+          'expected_lifespan_days', // 预计使用天数
+          'purchase_date',   // 购买日期
+          'is_pinned',       // 是否置顶
+          'is_sold',         // 是否已出售
+          'sold_price',      // 出售价格
+          'sold_date',       // 出售日期
+          'category',        // 资产分类
+          'expire_date',     // 过期日期
+          'tags',            // 标签（分号分隔）
+          'created_at',      // 创建时间
+        ],
       ];
 
-      // 4. 转换为带 BOM 头（防止 Excel 中文乱码）的 CSV 格式
-      final csvString = const ListToCsvConverter().convert(csvData);
-      final bytes = utf8.encode(csvString);
-      // 添加 UTF-8 BOM
-      final bytesWithBom = [0xEF, 0xBB, 0xBF, ...bytes];
-
-      // 5. 根据平台选择不同的下载方式
-      if (kIsWeb) {
-        // Web 端下载 - 修复：必须使用 Uint8List，否则会被强制转化为 ASCII 数字字符串
-        final blob = html.Blob([Uint8List.fromList(bytesWithBom)], 'text/csv;charset=utf-8');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        html.AnchorElement(href: url)
-          ..setAttribute('download', 'assets_export_${DateTime.now().toIso8601String().split('T')[0]}.csv')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-      } else {
-        // 桌面端/移动端下载
-        String? outputPath = await FilePicker.platform.saveFile(
-          dialogTitle: '保存 CSV 文件',
-          fileName: 'assets_export_${DateTime.now().toIso8601String().split('T')[0]}.csv',
-          bytes: Uint8List.fromList(bytesWithBom),
-        );
-        
-        if (outputPath == null) {
-          // 用户取消了保存
-          return;
-        }
+      // 添加每条资产数据
+      for (final asset in assets) {
+        csvData.add([
+          asset.id ?? '',
+          asset.assetName,
+          asset.purchasePrice,
+          asset.expectedLifespanDays,
+          _formatDate(asset.purchaseDate),
+          asset.isPinned ? 'true' : 'false',
+          asset.isSold ? 'true' : 'false',
+          asset.soldPrice ?? '',
+          asset.soldDate != null ? _formatDate(asset.soldDate!) : '',
+          asset.category,
+          asset.expireDate != null ? _formatDate(asset.expireDate!) : '',
+          asset.tags.join(';'),
+          _formatDate(asset.createdAt),
+        ]);
       }
 
-      _showSuccess('导出成功！共导出 ${assets.length} 条资产记录');
-    } catch (e) {
-      _showError('导出失败: $e');
+      // 生成 CSV 字符串
+      final csvString = const ListToCsvConverter().convert(csvData);
+      debugPrint('[导出] CSV 字符串长度: ${csvString.length}');
+
+      // 默认文件名（带时间戳）
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final defaultFileName = 'daily_price_backup_$timestamp.csv';
+      debugPrint('[导出] 默认文件名: $defaultFileName');
+
+      // 根据平台处理导出
+      if (kIsWeb) {
+        // Web 平台：使用 universal_html 下载
+        debugPrint('[导出] Web 平台，使用 Blob 下载');
+        final bytes = utf8.encode(csvString);
+        final blob = html.Blob([bytes], 'text/csv', 'native');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute('download', defaultFileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+        _showSuccess('已导出 ${assets.length} 条资产数据');
+      } else if (Platform.isAndroid) {
+        // Android 平台：尝试使用 file_picker saveFile
+        debugPrint('[导出] Android 平台，尝试 saveFile');
+        
+        try {
+          // 先写入临时文件
+          final tempDir = await getTemporaryDirectory();
+          final tempFilePath = '${tempDir.path}/$defaultFileName';
+          final tempFile = File(tempFilePath);
+          await tempFile.writeAsString(csvString);
+          debugPrint('[导出] 临时文件已创建: $tempFilePath');
+
+          // 尝试使用 file_picker 的 saveFile
+          final savePath = await FilePicker.platform.saveFile(
+            dialogTitle: '保存 CSV 文件',
+            fileName: defaultFileName,
+            type: FileType.custom,
+            allowedExtensions: ['csv'],
+            bytes: Uint8List.fromList(utf8.encode(csvString)),
+          );
+          
+          // 用户点击取消，直接返回
+          if (savePath == null) {
+            debugPrint('[导出] 用户取消保存');
+            return;
+          }
+          
+          if (savePath.isNotEmpty) {
+            debugPrint('[导出] saveFile 返回路径: $savePath');
+            _showSuccess('已保存到: $savePath');
+          } else {
+            // saveFile 返回空字符串，尝试备选方案
+            debugPrint('[导出] saveFile 返回空字符串，尝试备选方案');
+            await _exportToAndroidDownload(csvString, defaultFileName);
+          }
+        } on PlatformException catch (e) {
+          debugPrint('[导出] PlatformException: ${e.code} - ${e.message}');
+          // 显示具体错误信息
+          _showError('saveFile 失败: ${e.code} - ${e.message}');
+          // 尝试备选方案
+          await _exportToAndroidDownload(csvString, defaultFileName);
+        } catch (e) {
+          debugPrint('[导出] saveFile 异常: $e');
+          _showError('保存失败: ${e.toString()}');
+          // 尝试备选方案
+          await _exportToAndroidDownload(csvString, defaultFileName);
+        }
+      } else {
+        // iOS / macOS / Windows / Linux：使用 file_picker saveFile
+        debugPrint('[导出] 桌面端平台，使用 saveFile');
+        
+        try {
+          final savePath = await FilePicker.platform.saveFile(
+            dialogTitle: '保存 CSV 文件',
+            fileName: defaultFileName,
+            type: FileType.custom,
+            allowedExtensions: ['csv'],
+            bytes: Uint8List.fromList(utf8.encode(csvString)),
+          );
+          
+          // 用户点击取消，直接返回
+          if (savePath == null) {
+            debugPrint('[导出] 用户取消保存');
+            return;
+          }
+          
+          if (savePath.isNotEmpty) {
+            debugPrint('[导出] 文件已保存到: $savePath');
+            _showSuccess('已保存到: $savePath');
+          }
+        } on PlatformException catch (e) {
+          debugPrint('[导出] PlatformException: ${e.code} - ${e.message}');
+          _showError('保存失败: ${e.code} - ${e.message}');
+        } catch (e) {
+          debugPrint('[导出] 保存异常: $e');
+          _showError('保存失败: ${e.toString()}');
+        }
+      }
+      
+      debugPrint('[导出] 导出流程完成');
+    } catch (e, stackTrace) {
+      debugPrint('[导出] 发生错误: $e');
+      debugPrint('[导出] 堆栈: $stackTrace');
+      _showError('导出失败：${e.toString()}');
     } finally {
       if (mounted) {
         setState(() {
@@ -505,10 +642,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Android 备选导出方案：尝试直接写入 Download 目录
+  Future<void> _exportToAndroidDownload(String csvString, String fileName) async {
+    try {
+      debugPrint('[导出] 尝试写入 Download 目录');
+      
+      // 尝试写入 Android 公共 Download 目录
+      final downloadDir = Directory('/storage/emulated/0/Download');
+      
+      if (await downloadDir.exists()) {
+        final filePath = '${downloadDir.path}/$fileName';
+        final file = File(filePath);
+        await file.writeAsString(csvString);
+        debugPrint('[导出] 已写入 Download 目录: $filePath');
+        _showSuccess('已保存到下载目录: $fileName');
+      } else {
+        debugPrint('[导出] Download 目录不存在');
+        // 回退到临时目录
+        final tempDir = await getTemporaryDirectory();
+        final tempFilePath = '${tempDir.path}/$fileName';
+        final tempFile = File(tempFilePath);
+        await tempFile.writeAsString(csvString);
+        debugPrint('[导出] 已写入临时目录: $tempFilePath');
+        _showSuccess('已保存到临时目录: $fileName\n路径: $tempFilePath');
+      }
+    } catch (e) {
+      debugPrint('[导出] 备选方案失败: $e');
+      _showError('保存失败，请检查存储权限: ${e.toString()}');
+    }
+  }
+
   /// 导入 CSV 文件逻辑
+  /// 按最高标准重构：动态 Header 映射、强制错误抛出、查重 upsert
   Future<void> _importFromCSV() async {
     // 防抖保护
-    if (_importExportLocked) return;
+    if (_importExportLocked) {
+      debugPrint('[导入] 操作被锁定，跳过');
+      return;
+    }
     
     setState(() {
       _isImporting = true;
@@ -516,166 +687,193 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     try {
-      // 获取当前登录用户
-      final currentUser = Supabase.instance.client.auth.currentUser;
-      if (currentUser == null) {
-        _showError('请先登录');
-        return;
-      }
-
-      // 1. 选择 CSV 文件
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      debugPrint('[导入] 开始导入流程...');
+      
+      // 选择 CSV 文件
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: '选择 CSV 文件',
         type: FileType.custom,
         allowedExtensions: ['csv'],
-        withData: true, // Web 端和桌面端都需要
+        withData: true, // 确保读取文件内容
       );
 
       if (result == null || result.files.isEmpty) {
-        // 用户取消了选择
+        debugPrint('[导入] 用户取消选择');
         return;
       }
 
       final file = result.files.first;
-      
-      // 2. 读取文件内容
-      if (file.bytes == null) {
-        _showError('无法读取文件内容');
-        return;
+      debugPrint('[导入] 选中文件: ${file.name}');
+      String csvString;
+
+      if (kIsWeb) {
+        // Web 平台：从 bytes 读取
+        final bytes = file.bytes;
+        if (bytes == null) {
+          _showError('无法读取文件内容：bytes 为空');
+          return;
+        }
+        csvString = utf8.decode(bytes);
+      } else {
+        // 移动端/桌面端：从路径读取
+        if (file.path == null) {
+          _showError('无法获取文件路径：path 为空');
+          return;
+        }
+        csvString = await File(file.path!).readAsString();
       }
       
-      String csvContent = utf8.decode(file.bytes!);
+      debugPrint('[导入] CSV 字符串长度: ${csvString.length}');
 
-      // 3. 解析 CSV 数据
-      // 尝试检测并移除 BOM 头
-      String normalizedContent = csvContent;
-      if (csvContent.startsWith('\ufeff')) {
-        normalizedContent = csvContent.substring(1);
-      }
-
-      final List<List<dynamic>> csvRows = const CsvToListConverter().convert(normalizedContent);
+      // 解析 CSV
+      final csvRows = const CsvToListConverter().convert(csvString);
+      debugPrint('[导入] 解析到 ${csvRows.length} 行（含表头）');
       
       if (csvRows.length < 2) {
-        _showError('CSV 文件为空或格式不正确');
+        _showError('CSV 文件为空或格式不正确（仅有 ${csvRows.length} 行）');
         return;
       }
 
-      // 4. 忽略第一行表头，解析数据行
-      final List<Map<String, dynamic>> assetsToUpsert = [];
+      // 获取表头，建立字段索引映射
+      final header = csvRows[0].map((e) => e.toString().trim().toLowerCase()).toList();
+      debugPrint('[导入] 表头: $header');
+      
+      final Map<String, int> fieldIndex = {};
+      for (int i = 0; i < header.length; i++) {
+        fieldIndex[header[i]] = i;
+      }
+
+      // 验证必要字段：资产名称（支持 asset_name 或 name）
+      final hasAssetName = fieldIndex.containsKey('asset_name') || 
+                           fieldIndex.containsKey('name') ||
+                           fieldIndex.containsKey('title');
+      if (!hasAssetName) {
+        _showError('CSV 缺少必要字段: asset_name 或 name 或 title\n当前表头: $header');
+        return;
+      }
+
+      // 解析为 Asset 列表
+      final assetsToImport = <Asset>[];
       int skippedRows = 0;
 
       for (int i = 1; i < csvRows.length; i++) {
         final row = csvRows[i];
-        
-        // 确保行有足够的列数（至少需要 9 列：ID + 8 个基本字段）
-        if (row.length < 9) {
+        if (row.isEmpty) {
           skippedRows++;
           continue;
         }
 
         try {
-          // 解析每一行数据
-          // 新表头顺序：['ID', '资产名称', '购入价格', '预计使用天数', '购买日期', '是否置顶', '是否已出售', '卖出价格', '出售日期', '资产类型', '过期日期', '创建时间']
-          // 兼容旧格式（无 ID 列）：['资产名称', '购入价格', ...]
-          
-          // 检测是否有 ID 列（通过检查第一行表头判断）
-          final firstRowHeader = csvRows[0][0]?.toString() ?? '';
-          final hasIdColumn = firstRowHeader == 'ID';
-          
-          int colOffset = 0;
-          String? assetId;
-          
-          if (hasIdColumn) {
-            // 新格式：第一列是 ID
-            assetId = row[0]?.toString().trim() ?? '';
-            colOffset = 0;
+          /// 动态获取值函数（针对当前行）
+          String? getRowValue(List<String> possibleFieldNames) {
+            for (final fieldName in possibleFieldNames) {
+              final idx = fieldIndex[fieldName.toLowerCase()];
+              if (idx != null && idx < row.length) {
+                final val = row[idx];
+                return (val == null || val.toString().trim().isEmpty) 
+                    ? null 
+                    : val.toString().trim();
+              }
+            }
+            return null;
           }
-          
-          final assetName = row[colOffset + 0]?.toString().trim() ?? '';
-          if (assetName.isEmpty) {
+
+          // 动态获取资产名称（支持多种表头名称）
+          final assetName = getRowValue(['asset_name', 'name', 'title']);
+          if (assetName == null || assetName.isEmpty) {
+            debugPrint('[导入] 第 $i 行缺少资产名称，跳过');
             skippedRows++;
             continue;
           }
 
-          final purchasePrice = double.tryParse(row[colOffset + 1]?.toString() ?? '0') ?? 0.0;
-          final expectedLifespanDays = int.tryParse(row[colOffset + 2]?.toString() ?? '0') ?? 0;
+          // 解析其他字段
+          final id = getRowValue(['id', 'uuid']);
           
-          // 解析购买日期
-          DateTime? purchaseDate = _parseDateString(row[colOffset + 3]?.toString() ?? '');
-          if (purchaseDate == null) {
-            purchaseDate = DateTime.now();
-          }
+          final purchasePriceStr = getRowValue(['purchase_price', 'price']);
+          final purchasePrice = purchasePriceStr != null 
+              ? double.tryParse(purchasePriceStr) ?? 0.0 
+              : 0.0;
 
-          // 解析布尔值
-          final isPinned = row[colOffset + 4]?.toString() == '是' || row[colOffset + 4]?.toString().toLowerCase() == 'true';
-          final isSold = row[colOffset + 5]?.toString() == '是' || row[colOffset + 5]?.toString().toLowerCase() == 'true';
+          final lifespanStr = getRowValue(['expected_lifespan_days', 'lifespan_days', 'lifespan']);
+          final expectedLifespanDays = lifespanStr != null 
+              ? int.tryParse(lifespanStr) ?? 365 
+              : 365;
 
-          // 解析卖出价格
-          double? soldPrice;
-          if (row.length > colOffset + 6 && row[colOffset + 6] != null && row[colOffset + 6].toString().isNotEmpty) {
-            soldPrice = double.tryParse(row[colOffset + 6].toString());
-          }
+          final purchaseDateStr = getRowValue(['purchase_date', 'buy_date', 'date']);
+          final purchaseDate = _parseDateString(purchaseDateStr) ?? DateTime.now();
 
-          // 解析出售日期
-          DateTime? soldDate;
-          if (row.length > colOffset + 7 && row[colOffset + 7] != null && row[colOffset + 7].toString().isNotEmpty) {
-            soldDate = _parseDateString(row[colOffset + 7].toString());
-          }
-          
-          // 解析资产类型（新字段）
-          String category = 'physical';
-          if (row.length > colOffset + 9 && row[colOffset + 9] != null && row[colOffset + 9].toString().isNotEmpty) {
-            final cat = row[colOffset + 9].toString().trim();
-            if (['physical', 'virtual', 'subscription'].contains(cat)) {
-              category = cat;
-            }
-          }
-          
-          // 解析过期日期（新字段）
-          DateTime? expireDate;
-          if (row.length > colOffset + 10 && row[colOffset + 10] != null && row[colOffset + 10].toString().isNotEmpty) {
-            expireDate = _parseDateString(row[colOffset + 10].toString());
-          }
+          final isPinned = getRowValue(['is_pinned', 'pinned'])?.toLowerCase() == 'true';
+          final isSold = getRowValue(['is_sold', 'sold'])?.toLowerCase() == 'true';
 
-          // 构建要插入/更新的数据 - 强制加上当前登录用户的 user_id
-          final assetData = {
-            'user_id': currentUser.id, // 核心：强制加上当前登录用户的 user_id
-            'asset_name': assetName,
-            'purchase_price': purchasePrice,
-            'expected_lifespan_days': expectedLifespanDays,
-            'purchase_date': purchaseDate.toIso8601String(),
-            'is_pinned': isPinned,
-            'is_sold': isSold,
-            'category': category,
-            if (soldPrice != null) 'sold_price': soldPrice,
-            if (soldDate != null) 'sold_date': soldDate.toIso8601String(),
-            if (expireDate != null) 'expire_date': expireDate.toIso8601String(),
-          };
-          
-          // 如果有 ID，添加到数据中用于 upsert
-          if (hasIdColumn && assetId != null && assetId!.isNotEmpty) {
-            assetData['id'] = assetId!;
-          }
-          
-          assetsToUpsert.add(assetData);
+          final soldPriceStr = getRowValue(['sold_price', 'sell_price']);
+          final soldPrice = soldPriceStr != null 
+              ? double.tryParse(soldPriceStr) 
+              : null;
+
+          final soldDateStr = getRowValue(['sold_date', 'sell_date']);
+          final soldDate = _parseDateString(soldDateStr);
+
+          final category = getRowValue(['category', 'type']) ?? 'physical';
+
+          final expireDateStr = getRowValue(['expire_date', 'expiry_date']);
+          final expireDate = _parseDateString(expireDateStr);
+
+          final tagsStr = getRowValue(['tags', 'tag']);
+          final tags = tagsStr != null && tagsStr.isNotEmpty
+              ? tagsStr.split(';').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+              : <String>[];
+
+          final createdAtStr = getRowValue(['created_at', 'created_date', 'created']);
+          final createdAt = _parseDateString(createdAtStr) ?? DateTime.now();
+
+          final asset = Asset(
+            id: id,
+            assetName: assetName,
+            purchasePrice: purchasePrice,
+            expectedLifespanDays: expectedLifespanDays,
+            purchaseDate: purchaseDate,
+            isPinned: isPinned,
+            isSold: isSold,
+            soldPrice: soldPrice,
+            soldDate: soldDate,
+            category: category,
+            expireDate: expireDate,
+            tags: tags,
+            createdAt: createdAt,
+          );
+
+          assetsToImport.add(asset);
         } catch (e) {
+          debugPrint('[导入] 第 $i 行解析失败: $e');
           skippedRows++;
           continue;
         }
       }
+      
+      debugPrint('[导入] 解析完成：${assetsToImport.length} 条有效，$skippedRows 条跳过');
 
-      if (assetsToUpsert.isEmpty) {
-        _showError('没有有效的数据可导入${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
+      if (assetsToImport.isEmpty) {
+        _showError('没有有效的资产数据可导入\n共跳过 $skippedRows 行');
         return;
       }
 
-      // 5. 批量上传到 Supabase - 使用 upsert 避免重复
-      await Supabase.instance.client
-          .from('assets')
-          .upsert(assetsToUpsert, onConflict: 'id');
+      // 调用 LocalDbService 的 upsert 方法进行导入
+      // 该方法会严格按照 UUID 查重，存在则继承 isarId 覆盖更新
+      final (insertedCount, updatedCount) = await LocalDbService().importAssetsWithUpsert(assetsToImport);
+      
+      debugPrint('[导入] 导入完成：新增 $insertedCount 条，更新 $updatedCount 条');
 
-      _showSuccess('导入成功！共导入 ${assetsToUpsert.length} 条资产记录${skippedRows > 0 ? '，跳过了 $skippedRows 行无效数据' : ''}');
-    } catch (e) {
-      _showError('导入失败: $e');
+      // 刷新 UI
+      if (mounted) {
+        setState(() {});
+      }
+
+      _showSuccess('导入完成：新增 $insertedCount 条，更新 $updatedCount 条');
+    } catch (e, stackTrace) {
+      // 强制错误抛出：显示完整错误信息
+      debugPrint('[导入] 发生错误: $e');
+      debugPrint('[导入] 堆栈: $stackTrace');
+      _showError('导入失败：${e.toString()}');
     } finally {
       if (mounted) {
         setState(() {
@@ -722,24 +920,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Divider(height: 1),
               
               // 默认启动分栏
-              ListTile(
-                leading: const Icon(Icons.folder_open),
-                title: const Text('默认启动分栏'),
-                subtitle: Text(_getCategoryLabel(_defaultCategory)),
-                trailing: DropdownButton<String>(
-                  value: _defaultCategory,
-                  underline: const SizedBox(),
-                  items: _categoryOptions.map((option) {
-                    return DropdownMenuItem<String>(
-                      value: option['value'],
-                      child: Text(option['label']!),
-                    );
-                  }).toList(),
-                  onChanged: (String? newValue) {
-                    if (newValue != null) {
-                      _saveDefaultCategory(newValue);
-                    }
-                  },
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // 恢复正常的标题样式
+                    const Text(
+                      '默认启动分栏',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    ),
+                    // 右侧的优雅下拉框
+                    Container(
+                      width: 160,
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceVariant, // 适配暗色模式的微底色
+                        borderRadius: BorderRadius.circular(8.0), // 圆角设计更现代
+                      ),
+                      child: DropdownButtonHideUnderline( // 去掉丑陋的底部下划线
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: _defaultCategory,
+                          icon: const Icon(Icons.arrow_drop_down, size: 20),
+                          items: _categoryOptions.map((option) {
+                            return DropdownMenuItem<String>(
+                              value: option['value'],
+                              child: Text(
+                                option['label']!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (String? newValue) {
+                            if (newValue != null) {
+                              _saveDefaultCategory(newValue);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const Divider(height: 1),
@@ -760,8 +983,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 )
               else
                 ..._customTabs.map((tab) => ListTile(
+                  contentPadding: const EdgeInsets.only(left: 16.0, right: 8.0), // 右侧内边距缩减
                   leading: const Icon(Icons.label_outline),
-                  title: Text(tab),
+                  title: Padding(
+                    padding: const EdgeInsets.only(left: 16.0), // 标签名向右平移
+                    child: Text(
+                      tab,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -855,7 +1086,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   );
                   
                   if (confirmed == true) {
-                    await Supabase.instance.client.auth.signOut();
                     if (mounted) {
                       Navigator.of(context).pop();
                     }

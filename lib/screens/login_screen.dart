@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+// TODO: 替换为 PocketBase 认证
+// import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -48,12 +49,14 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // TODO: 替换为 PocketBase 登录方法
+      /*
       await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-    } on AuthException catch (e) {
-      _showError(_translateAuthError(e.message));
+      */
+      _showError('登录功能暂未实现，请等待 PocketBase 集成');
     } catch (e) {
       _showError('登录失败，请重试');
     } finally {
@@ -75,6 +78,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // TODO: 替换为 PocketBase 注册方法
+      /*
       final response = await Supabase.instance.client.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
@@ -99,8 +104,8 @@ class _LoginScreenState extends State<LoginScreen> {
           _isRegisterMode = false;
         });
       }
-    } on AuthException catch (e) {
-      _showError(_translateAuthError(e.message));
+      */
+      _showError('注册功能暂未实现，请等待 PocketBase 集成');
     } catch (e) {
       _showError('注册失败，请重试');
     } finally {
