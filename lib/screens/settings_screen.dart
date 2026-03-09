@@ -27,18 +27,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _defaultCategory = 'pinned';
   final String _prefKey = 'default_startup_category';
   
-  // 分栏选项
-  final List<Map<String, String>> _categoryOptions = [
+  // 自定义分栏设置
+  List<String> _customTabs = [];
+  final String _customTabsPrefKey = 'custom_tabs';
+  
+  // 基础分栏选项（不含自定义分栏）
+  final List<Map<String, String>> _baseCategoryOptions = [
     {'value': 'pinned', 'label': '置顶'},
     {'value': 'physical', 'label': '实体资产'},
     {'value': 'virtual', 'label': '虚拟资产'},
     {'value': 'subscription', 'label': '订阅服务'},
   ];
+  
+  // 获取完整的分栏选项（包含自定义分栏）
+  List<Map<String, String>> get _categoryOptions {
+    final options = <Map<String, String>>[
+      {'value': 'all', 'label': '全部'}, // 添加"全部"选项
+    ];
+    options.addAll(_baseCategoryOptions);
+    for (final tab in _customTabs) {
+      options.add({'value': 'custom_$tab', 'label': tab});
+    }
+    return options;
+  }
 
   @override
   void initState() {
     super.initState();
     _loadDefaultCategory();
+    _loadCustomTabs();
   }
   
   /// 加载默认启动分栏设置
@@ -56,6 +73,279 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _defaultCategory = value;
     });
+  }
+  
+  /// 加载自定义分栏设置
+  Future<void> _loadCustomTabs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final tabs = prefs.getStringList(_customTabsPrefKey) ?? [];
+    setState(() {
+      _customTabs = tabs;
+    });
+  }
+  
+  /// 保存自定义分栏设置
+  Future<void> _saveCustomTabs(List<String> tabs) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_customTabsPrefKey, tabs);
+    setState(() {
+      _customTabs = tabs;
+    });
+  }
+  
+  /// 添加自定义分栏
+  Future<void> _addCustomTab() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('添加自定义分栏'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '输入分栏名称，如"工作"、"闲置"',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    
+    if (result != null && result.isNotEmpty) {
+      // 检查是否已存在
+      if (_customTabs.contains(result)) {
+        _showError('该分栏名称已存在');
+        return;
+      }
+      final newTabs = [..._customTabs, result];
+      await _saveCustomTabs(newTabs);
+      _showSuccess('已添加分栏"$result"');
+    }
+  }
+  
+  /// 批量管理资产标签（双向同步：添加/取消）
+  Future<void> _batchAddTagToAssets(String tagName) async {
+    // 获取当前用户所有资产
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    if (currentUser == null) {
+      _showError('请先登录');
+      return;
+    }
+
+    try {
+      // 从 Supabase 获取所有资产
+      final response = await Supabase.instance.client
+          .from('assets')
+          .select('id, asset_name, tags')
+          .eq('user_id', currentUser.id)
+          .order('created_at', ascending: false);
+
+      if (response.isEmpty) {
+        _showError('暂无资产可管理标签');
+        return;
+      }
+
+      final List<Map<String, dynamic>> assets = (response as List)
+          .map((item) => {
+                'id': item['id'],
+                'asset_name': item['asset_name'],
+                'tags': List<String>.from(item['tags'] ?? []),
+              })
+          .toList();
+
+      // 初始化选中状态：已有该标签的资产默认选中
+      final Set<String> selectedAssetIds = {};
+      for (final asset in assets) {
+        final tags = asset['tags'] as List<String>;
+        if (tags.contains(tagName)) {
+          selectedAssetIds.add(asset['id'] as String);
+        }
+      }
+
+      // 保存初始状态用于对比
+      final Set<String> initialSelectedIds = Set.from(selectedAssetIds);
+
+      // 显示选择对话框
+      await showDialog(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text('管理标签「$tagName」'),
+            content: SizedBox(
+              width: 400,
+              height: MediaQuery.of(context).size.height * 0.6,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '勾选添加标签，取消勾选移除标签：',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: assets.length,
+                      itemBuilder: (context, index) {
+                        final asset = assets[index];
+                        final assetId = asset['id'] as String;
+                        final assetName = asset['asset_name'] as String;
+                        final tags = asset['tags'] as List<String>;
+                        final isSelected = selectedAssetIds.contains(assetId);
+
+                        return CheckboxListTile(
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: isSelected,
+                          onChanged: (checked) {
+                            setDialogState(() {
+                              if (checked == true) {
+                                selectedAssetIds.add(assetId);
+                              } else {
+                                selectedAssetIds.remove(assetId);
+                              }
+                            });
+                          },
+                          title: Text(assetName),
+                          subtitle: tags.isNotEmpty
+                              ? Text(
+                                  '标签: ${tags.join(', ')}',
+                                  style: const TextStyle(fontSize: 12),
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+
+                  // 对比初始状态和最终状态，找出变更
+                  final List<Map<String, dynamic>> toAdd = []; // 需要添加标签的资产
+                  final List<Map<String, dynamic>> toRemove = []; // 需要移除标签的资产
+
+                  for (final asset in assets) {
+                    final assetId = asset['id'] as String;
+                    final existingTags = asset['tags'] as List<String>;
+                    final wasSelected = initialSelectedIds.contains(assetId);
+                    final isNowSelected = selectedAssetIds.contains(assetId);
+
+                    if (!wasSelected && isNowSelected) {
+                      // 原来没有勾，现在勾了 -> 添加标签
+                      if (!existingTags.contains(tagName)) {
+                        toAdd.add({
+                          'id': assetId,
+                          'newTags': [...existingTags, tagName],
+                        });
+                      }
+                    } else if (wasSelected && !isNowSelected) {
+                      // 原来勾了，现在取消了 -> 移除标签
+                      if (existingTags.contains(tagName)) {
+                        toRemove.add({
+                          'id': assetId,
+                          'newTags': existingTags.where((t) => t != tagName).toList(),
+                        });
+                      }
+                    }
+                  }
+
+                  // 批量更新数据库
+                  int addedCount = 0;
+                  int removedCount = 0;
+
+                  for (final item in toAdd) {
+                    await Supabase.instance.client
+                        .from('assets')
+                        .update({'tags': item['newTags']})
+                        .eq('id', item['id']);
+                    addedCount++;
+                  }
+
+                  for (final item in toRemove) {
+                    await Supabase.instance.client
+                        .from('assets')
+                        .update({'tags': item['newTags']})
+                        .eq('id', item['id']);
+                    removedCount++;
+                  }
+
+                  if (mounted) {
+                    final messages = <String>[];
+                    if (addedCount > 0) messages.add('添加 $addedCount 个');
+                    if (removedCount > 0) messages.add('移除 $removedCount 个');
+                    
+                    if (messages.isEmpty) {
+                      _showSuccess('无变更');
+                    } else {
+                      _showSuccess('已${messages.join('，')}资产的标签「$tagName」');
+                    }
+                  }
+                },
+                child: const Text('确认'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      _showError('获取资产列表失败: $e');
+    }
+  }
+
+  /// 删除自定义分栏
+  Future<void> _removeCustomTab(String tab) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要删除分栏"$tab"吗？\n已标记该分栏的资产不会被删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      final newTabs = _customTabs.where((t) => t != tab).toList();
+      
+      // 安全检查：如果被删除的分栏正是当前的默认分栏，重置为 'all'
+      final customTabValue = 'custom_$tab';
+      if (_defaultCategory == customTabValue) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_prefKey, 'all');
+        setState(() {
+          _defaultCategory = 'all';
+        });
+      }
+      
+      await _saveCustomTabs(newTabs);
+      _showSuccess('已删除分栏"$tab"');
+    }
   }
 
   /// 格式化日期为 yyyy-MM-dd 格式
@@ -451,6 +741,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     }
                   },
                 ),
+              ),
+              const Divider(height: 1),
+              
+              const SizedBox(height: 16),
+              
+              // 自定义分栏管理分区
+              _buildSectionHeader('自定义分栏'),
+              
+              // 自定义分栏列表
+              if (_customTabs.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    '暂无自定义分栏，点击下方按钮添加',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  ),
+                )
+              else
+                ..._customTabs.map((tab) => ListTile(
+                  leading: const Icon(Icons.label_outline),
+                  title: Text(tab),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 添加标签按钮
+                      IconButton(
+                        icon: const Icon(Icons.sell_outlined, color: Colors.blue),
+                        tooltip: '批量添加标签',
+                        onPressed: () => _batchAddTagToAssets(tab),
+                      ),
+                      // 删除按钮
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _removeCustomTab(tab),
+                      ),
+                    ],
+                  ),
+                )),
+              
+              // 添加自定义分栏按钮
+              ListTile(
+                leading: const Icon(Icons.add, color: Colors.green),
+                title: const Text('添加自定义分栏', style: TextStyle(color: Colors.green)),
+                onTap: _addCustomTab,
               ),
               const Divider(height: 1),
               

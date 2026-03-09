@@ -1,3 +1,5 @@
+
+
 import 'package:intl/intl.dart';
 
 /// 资产模型 - 用于记录个人资产折旧与价值平摊
@@ -15,6 +17,7 @@ import 'package:intl/intl.dart';
 /// - category: 资产分类 (physical, virtual, subscription)
 /// - expire_date: 过期日期（用于订阅类资产）
 /// - renewal_history: 续费历史记录
+/// - tags: 自定义标签（JSONB）
 /// - created_at: 创建时间
 class Asset {
   final String? id;
@@ -30,6 +33,7 @@ class Asset {
   final String category; // 资产分类：physical(实体), virtual(虚拟), subscription(订阅)
   final DateTime? expireDate; // 过期日期（主要用于订阅类资产）
   final List<dynamic> renewalHistory; // 续费历史记录
+  final List<String> tags; // 自定义标签
   final DateTime createdAt; // 创建时间
 
   Asset({
@@ -46,8 +50,10 @@ class Asset {
     this.category = 'physical',
     this.expireDate,
     List<dynamic>? renewalHistory,
+    List<String>? tags,
     DateTime? createdAt,
   })  : renewalHistory = renewalHistory ?? [],
+        tags = tags ?? [],
         createdAt = createdAt ?? DateTime.now();
 
   /// 计算日均成本
@@ -129,6 +135,7 @@ class Asset {
       'category': category,
       if (expireDate != null) 'expire_date': expireDate!.toIso8601String(),
       'renewal_history': renewalHistory,
+      'tags': tags,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -149,6 +156,7 @@ class Asset {
       category: (json['category'] as String?) ?? 'physical',
       expireDate: json['expire_date'] != null ? _parseDate(json['expire_date']) : null,
       renewalHistory: json['renewal_history'] as List<dynamic>? ?? [],
+      tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -168,6 +176,7 @@ class Asset {
     String? category,
     DateTime? expireDate,
     List<dynamic>? renewalHistory,
+    List<String>? tags,
   }) {
     return Asset(
       id: id ?? this.id,
@@ -183,13 +192,14 @@ class Asset {
       category: category ?? this.category,
       expireDate: expireDate ?? this.expireDate,
       renewalHistory: renewalHistory ?? this.renewalHistory,
+      tags: tags ?? this.tags,
       createdAt: createdAt,
     );
   }
 
   @override
   String toString() {
-    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory)';
+    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory, tags: $tags)';
   }
 
   /// 解析预计使用天数，支持自然语言

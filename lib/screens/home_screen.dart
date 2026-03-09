@@ -26,15 +26,20 @@ class _HomeScreenState extends State<HomeScreen> {
   String _sortBy = 'created_at';
   bool _sortAscending = false;
   
+  // 自定义分栏列表
+  List<String> _customTabs = [];
+  
   // SharedPreferences 键名
   static const String _prefKeyCategory = 'home_current_category';
   static const String _prefKeySortBy = 'home_sort_by';
   static const String _prefKeySortAscending = 'home_sort_ascending';
+  static const String _customTabsPrefKey = 'custom_tabs';
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+    _loadCustomTabs();
     _loadAssets();
   }
   
@@ -65,6 +70,14 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _sortBy = sortBy;
       _sortAscending = ascending;
+    });
+  }
+  
+  /// 加载自定义分栏列表
+  Future<void> _loadCustomTabs() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _customTabs = prefs.getStringList(_customTabsPrefKey) ?? [];
     });
   }
 
@@ -225,8 +238,15 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Asset> get _filteredAssets {
     List<Asset> filtered;
     
-    if (_currentCategory == 'pinned') {
+    if (_currentCategory == 'all') {
+      // 全部：展示所有资产
+      filtered = List.from(_assets);
+    } else if (_currentCategory == 'pinned') {
       filtered = _assets.where((a) => a.isPinned).toList();
+    } else if (_currentCategory.startsWith('custom_')) {
+      // 自定义分栏：根据 tags 过滤
+      final tabName = _currentCategory.substring(7); // 移除 'custom_' 前缀
+      filtered = _assets.where((a) => a.tags.contains(tabName)).toList();
     } else {
       filtered = _assets.where((a) => a.category == _currentCategory).toList();
     }
@@ -265,6 +285,10 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'subscription':
         return '限时资产';
       default:
+        // 自定义分栏：移除 'custom_' 前缀后返回
+        if (value.startsWith('custom_')) {
+          return value.substring(7);
+        }
         return '全部';
     }
   }
@@ -296,93 +320,107 @@ class _HomeScreenState extends State<HomeScreen> {
         leading: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 筛选按钮
+            // 分栏菜单（原筛选按钮更名）
             PopupMenuButton<String>(
-              icon: const Icon(Icons.filter_list),
-              tooltip: '筛选',
+              icon: const Icon(Icons.folder_outlined),
+              tooltip: '分栏',
               onSelected: (value) => _saveCategory(value),
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'pinned', child: Text('置顶')),
-                const PopupMenuItem(value: 'physical', child: Text('实体资产')),
-                const PopupMenuItem(value: 'virtual', child: Text('虚拟资产')),
-                const PopupMenuItem(value: 'subscription', child: Text('限时资产')),
-              ],
+              itemBuilder: (context) {
+                final items = <PopupMenuEntry<String>>[
+                  const PopupMenuItem(value: 'all', child: Text('全部')),
+                  const PopupMenuItem(value: 'pinned', child: Text('置顶')),
+                  const PopupMenuItem(value: 'physical', child: Text('实体资产')),
+                  const PopupMenuItem(value: 'virtual', child: Text('虚拟资产')),
+                  const PopupMenuItem(value: 'subscription', child: Text('限时资产')),
+                ];
+                // 动态添加自定义分栏
+                if (_customTabs.isNotEmpty) {
+                  items.add(const PopupMenuDivider());
+                  for (final tab in _customTabs) {
+                    items.add(PopupMenuItem(
+                      value: 'custom_$tab',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.label_outline, size: 18),
+                          const SizedBox(width: 8),
+                          Text(tab),
+                        ],
+                      ),
+                    ));
+                  }
+                }
+                return items;
+              },
             ),
-            // 刷新按钮
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: () => _loadAssets(isRefresh: true),
-              tooltip: '刷新数据',
+            // 排序菜单（从右侧移到左侧）
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.sort),
+              tooltip: '排序',
+              onSelected: (value) {
+                if (value == 'toggle_order') {
+                  _saveSortSettings(_sortBy, !_sortAscending);
+                } else {
+                  _saveSortSettings(value, _sortAscending);
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'created_at',
+                  child: Row(
+                    children: [
+                      if (_sortBy == 'created_at') const Icon(Icons.check, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('添加日期'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'name',
+                  child: Row(
+                    children: [
+                      if (_sortBy == 'name') const Icon(Icons.check, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('名称'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'purchase_date',
+                  child: Row(
+                    children: [
+                      if (_sortBy == 'purchase_date') const Icon(Icons.check, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('购买日期'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'price',
+                  child: Row(
+                    children: [
+                      if (_sortBy == 'price') const Icon(Icons.check, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('价格'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'toggle_order',
+                  child: Row(
+                    children: [
+                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 18),
+                      const SizedBox(width: 8),
+                      Text(_sortAscending ? '升序' : '降序'),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         leadingWidth: 100,
         actions: [
-          // 排序按钮
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.sort),
-            tooltip: '排序',
-            onSelected: (value) {
-              if (value == 'toggle_order') {
-                _saveSortSettings(_sortBy, !_sortAscending);
-              } else {
-                _saveSortSettings(value, _sortAscending);
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'created_at',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'created_at') const Icon(Icons.check, size: 18),
-                    const SizedBox(width: 8),
-                    const Text('添加日期'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'name',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'name') const Icon(Icons.check, size: 18),
-                    const SizedBox(width: 8),
-                    const Text('名称'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'purchase_date',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'purchase_date') const Icon(Icons.check, size: 18),
-                    const SizedBox(width: 8),
-                    const Text('购买日期'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'price',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'price') const Icon(Icons.check, size: 18),
-                    const SizedBox(width: 8),
-                    const Text('价格'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'toggle_order',
-                child: Row(
-                  children: [
-                    Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 18),
-                    const SizedBox(width: 8),
-                    Text(_sortAscending ? '升序' : '降序'),
-                  ],
-                ),
-              ),
-            ],
-          ),
           // 添加按钮
           IconButton(
             icon: const Icon(Icons.add),
@@ -392,7 +430,12 @@ class _HomeScreenState extends State<HomeScreen> {
           // 设置按钮
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.pushNamed(context, '/settings'),
+            onPressed: () async {
+              await Navigator.pushNamed(context, '/settings');
+              // 从设置页返回时，重新读取自定义分栏并刷新资产数据
+              await _loadCustomTabs();
+              await _loadAssets(isRefresh: true);
+            },
             tooltip: '设置',
           ),
         ],
@@ -756,6 +799,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final priceController = TextEditingController(text: asset?.purchasePrice.toString() ?? '');
     final expectedDaysController = TextEditingController(text: asset?.expectedLifespanDays.toString() ?? '');
     
+    // 日期控制器
+    final purchaseDateController = TextEditingController(
+      text: asset != null 
+          ? '${asset.purchaseDate.year}-${asset.purchaseDate.month.toString().padLeft(2, '0')}-${asset.purchaseDate.day.toString().padLeft(2, '0')}'
+          : '',
+    );
+    final soldDateController = TextEditingController(
+      text: asset?.soldDate != null 
+          ? '${asset!.soldDate!.year}-${asset.soldDate!.month.toString().padLeft(2, '0')}-${asset.soldDate!.day.toString().padLeft(2, '0')}'
+          : '',
+    );
+    
     // 表单状态
     String category = asset?.category ?? 'physical';
     DateTime purchaseDate = asset?.purchaseDate ?? DateTime.now();
@@ -764,6 +819,7 @@ class _HomeScreenState extends State<HomeScreen> {
     double? soldPrice = asset?.soldPrice;
     DateTime? soldDate = asset?.soldDate;
     DateTime? expireDate = asset?.expireDate;
+    List<String> selectedTags = asset?.tags.toList() ?? [];
     List<Map<String, dynamic>> renewalHistory = 
         (asset?.renewalHistory as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
     
@@ -824,7 +880,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           category = selection.first;
                           // 切换类型时重置一些状态
                           if (category == 'subscription') {
-                            isPinned = false;
                             isSold = false;
                             soldPrice = null;
                             soldDate = null;
@@ -874,44 +929,66 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 12),
                   
                   // 购买日期
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: purchaseDate,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (picked != null) {
-                        setModalState(() => purchaseDate = picked);
+                  TextFormField(
+                    controller: purchaseDateController,
+                    decoration: const InputDecoration(
+                      labelText: '购买日期',
+                      hintText: '未填写默认当前日期',
+                      prefixIcon: Icon(Icons.event),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) {
+                      // 支持手动输入日期解析
+                      final parsed = Asset.parseCustomDate(value);
+                      if (parsed != null) {
+                        purchaseDate = parsed;
                       }
                     },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: '购买日期',
-                        prefixIcon: Icon(Icons.event),
-                        border: OutlineInputBorder(),
-                      ),
-                      child: Text(
-                        '${purchaseDate.year}-${purchaseDate.month.toString().padLeft(2, '0')}-${purchaseDate.day.toString().padLeft(2, '0')}',
-                      ),
-                    ),
                   ),
                   const SizedBox(height: 16),
                   
+                  // 标签选择器（仅当有自定义分栏时显示）
+                  if (_customTabs.isNotEmpty) ...[
+                    const Text('自定义标签', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: _customTabs.map((tab) {
+                        final isSelected = selectedTags.contains(tab);
+                        return FilterChip(
+                          label: Text(tab),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setModalState(() {
+                              if (selected) {
+                                selectedTags.add(tab);
+                              } else {
+                                selectedTags.remove(tab);
+                              }
+                            });
+                          },
+                          selectedColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                          checkmarkColor: Theme.of(context).primaryColor,
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // 是否置顶（所有资产类型都可置顶）
+                  SwitchListTile(
+                    title: const Text('是否置顶'),
+                    subtitle: const Text('置顶的资产会显示在首页置顶列表'),
+                    value: isPinned,
+                    onChanged: (value) {
+                      setModalState(() => isPinned = value);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  
                   // 实体/虚拟资产特有字段
                   if (category != 'subscription') ...[
-                    // 是否置顶
-                    SwitchListTile(
-                      title: const Text('是否置顶'),
-                      subtitle: const Text('置顶的资产会显示在首页置顶列表'),
-                      value: isPinned,
-                      onChanged: (value) {
-                        setModalState(() => isPinned = value);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    
                     // 是否已出售（编辑模式下显示）
                     if (isEditing) ...[
                       SwitchListTile(
@@ -940,30 +1017,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 12),
                         
-                        InkWell(
-                          onTap: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: soldDate ?? DateTime.now(),
-                              firstDate: purchaseDate,
-                              lastDate: DateTime.now(),
-                            );
-                            if (picked != null) {
-                              setModalState(() => soldDate = picked);
+                        TextFormField(
+                          controller: soldDateController,
+                          decoration: const InputDecoration(
+                            labelText: '出售日期',
+                            hintText: '未填写默认当前日期',
+                            prefixIcon: Icon(Icons.event_available),
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (value) {
+                            // 支持手动输入日期解析
+                            final parsed = Asset.parseCustomDate(value);
+                            if (parsed != null) {
+                              soldDate = parsed;
                             }
                           },
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: '出售日期',
-                              prefixIcon: Icon(Icons.event_available),
-                              border: OutlineInputBorder(),
-                            ),
-                            child: Text(
-                              soldDate != null
-                                  ? '${soldDate!.year}-${soldDate!.month.toString().padLeft(2, '0')}-${soldDate!.day.toString().padLeft(2, '0')}'
-                                  : '选择日期',
-                            ),
-                          ),
                         ),
                         const SizedBox(height: 16),
                       ],
@@ -972,30 +1040,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   
                   // 限时资产特有字段
                   if (category == 'subscription') ...[
-                    // 过期日期
-                    InkWell(
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: expireDate ?? DateTime.now().add(const Duration(days: 365)),
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(const Duration(days: 3650)),
-                        );
-                        if (picked != null) {
-                          setModalState(() => expireDate = picked);
-                        }
-                      },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: '到期日期',
-                          prefixIcon: Icon(Icons.event_busy),
-                          border: OutlineInputBorder(),
-                        ),
-                        child: Text(
-                          expireDate != null
-                              ? '${expireDate!.year}-${expireDate!.month.toString().padLeft(2, '0')}-${expireDate!.day.toString().padLeft(2, '0')}'
-                              : '选择日期',
-                        ),
+                    // 到期日期自动计算提示
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              expireDate != null
+                                  ? '到期日期将自动计算：${expireDate!.year}-${expireDate!.month.toString().padLeft(2, '0')}-${expireDate!.day.toString().padLeft(2, '0')}'
+                                  : '到期日期将根据购买日期和使用时长自动计算',
+                              style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1093,6 +1158,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           final currentUser = Supabase.instance.client.auth.currentUser;
                           if (currentUser == null) return;
                           
+                          // 计算限时资产的到期日期
+                          DateTime? calculatedExpireDate = expireDate;
+                          if (category == 'subscription') {
+                            calculatedExpireDate = purchaseDate.add(Duration(days: days));
+                          }
+                          
                           final assetData = {
                             'user_id': currentUser.id,
                             'asset_name': nameController.text.trim(),
@@ -1104,8 +1175,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             'category': category,
                             if (soldPrice != null && isSold) 'sold_price': soldPrice,
                             if (soldDate != null && isSold) 'sold_date': soldDate!.toIso8601String(),
-                            if (expireDate != null) 'expire_date': expireDate!.toIso8601String(),
+                            if (calculatedExpireDate != null) 'expire_date': calculatedExpireDate!.toIso8601String(),
                             'renewal_history': renewalHistory,
+                            'tags': selectedTags,
                           };
                           
                           if (isEditing) {
@@ -1157,7 +1229,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
   
-  /// 显示添加续费记录对话框
+    /// 显示添加续费记录对话框
   void _showAddRenewalDialog(
     BuildContext context,
     List<Map<String, dynamic>> currentHistory,
@@ -1166,6 +1238,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     final priceController = TextEditingController();
     final daysController = TextEditingController();
+    final dateController = TextEditingController();
     DateTime renewalDate = DateTime.now();
     
     showDialog(
@@ -1188,34 +1261,25 @@ class _HomeScreenState extends State<HomeScreen> {
             TextField(
               controller: daysController,
               decoration: const InputDecoration(
-                labelText: '增加天数',
-                hintText: '例如：365',
+                labelText: '续费时长',
+                hintText: '例如：1 年、6 个月、365 天',
                 border: OutlineInputBorder(),
               ),
-              keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 12),
-            InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: renewalDate,
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                );
-                if (picked != null) {
-                  renewalDate = picked;
+            TextField(
+              controller: dateController,
+              decoration: const InputDecoration(
+                labelText: '付费日期',
+                hintText: '例如：2026-01-01、2026年1月1日',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) {
+                final parsed = Asset.parseCustomDate(value);
+                if (parsed != null) {
+                  renewalDate = parsed;
                 }
               },
-              child: InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: '付费日期',
-                  border: OutlineInputBorder(),
-                ),
-                child: Text(
-                  '${renewalDate.year}-${renewalDate.month.toString().padLeft(2, '0')}-${renewalDate.day.toString().padLeft(2, '0')}',
-                ),
-              ),
             ),
           ],
         ),
@@ -1227,7 +1291,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ElevatedButton(
             onPressed: () {
               final price = double.tryParse(priceController.text);
-              final days = int.tryParse(daysController.text);
+              final days = Asset.parseExpectedDays(daysController.text);
               
               if (price == null || price <= 0) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1235,9 +1299,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
                 return;
               }
-              if (days == null || days <= 0) {
+              if (days <= 0) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('请输入有效的天数'), backgroundColor: Colors.red),
+                  const SnackBar(content: Text('请输入有效的续费时长'), backgroundColor: Colors.red),
                 );
                 return;
               }
@@ -1248,20 +1312,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 'days': days,
               };
               
-              final newHistory = [...currentHistory, newRecord];
-              
-              // 计算新的过期日期
+              // 计算新的到期日期：基于当前到期日期（或购买日期）+ 续费时长
               DateTime newExpireDate;
               if (currentExpireDate != null && currentExpireDate.isAfter(DateTime.now())) {
+                // 如果当前到期日期还未过期，从到期日期开始计算
                 newExpireDate = currentExpireDate.add(Duration(days: days));
               } else {
-                newExpireDate = DateTime.now().add(Duration(days: days));
+                // 否则从续费日期开始计算
+                newExpireDate = renewalDate.add(Duration(days: days));
               }
               
-              onUpdate(newHistory, newExpireDate);
+              final newHistory = [...currentHistory, newRecord];
+              
               Navigator.pop(context);
+              onUpdate(newHistory, newExpireDate);
             },
-            child: const Text('添加'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2196F3),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('确定'),
           ),
         ],
       ),
