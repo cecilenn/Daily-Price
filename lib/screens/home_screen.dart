@@ -4,6 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/app_provider.dart';
 import '../services/local_db_service.dart';
+import 'asset_detail_screen.dart';
+import 'qr_scanner_screen.dart';
+import 'qr_code_screen.dart';
 
 /// 首页 - 资产列表与管理页面
 class HomeScreen extends StatefulWidget {
@@ -438,6 +441,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         leadingWidth: 100,
         actions: [
+          // 扫码按钮
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const QrScannerScreen(),
+                ),
+              );
+            },
+            tooltip: '扫描二维码',
+          ),
           // 添加按钮
           IconButton(
             icon: const Icon(Icons.add),
@@ -592,6 +608,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: const Icon(Icons.more_vert, size: 18),
                       onSelected: (value) {
                         switch (value) {
+                          case 'detail':
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AssetDetailScreen(asset: asset),
+                              ),
+                            );
+                            break;
+                          case 'qrcode':
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => QrCodeScreen(asset: asset),
+                              ),
+                            );
+                            break;
                           case 'edit':
                             _showAssetForm(asset: asset);
                             break;
@@ -604,6 +636,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
                       },
                       itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'detail',
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, size: 18),
+                              SizedBox(width: 8),
+                              Text('详情'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'qrcode',
+                          child: Row(
+                            children: [
+                              Icon(Icons.qr_code, size: 18),
+                              SizedBox(width: 8),
+                              Text('二维码'),
+                            ],
+                          ),
+                        ),
                         const PopupMenuItem(
                           value: 'edit',
                           child: Row(

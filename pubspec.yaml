@@ -58,6 +58,10 @@ dependencies:
   share_plus: ^12.0.1
   uuid: ^4.5.3
 
+  # 二维码生成与扫描
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^6.0.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
