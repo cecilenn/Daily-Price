@@ -15,7 +15,7 @@ extension GetAssetCollection on Isar {
 
 const AssetSchema = CollectionSchema(
   name: r'Asset',
-  id: -2933289051367723566,
+  id: 1,
   properties: {
     r'actualDailyCost': PropertySchema(
       id: 0,
@@ -145,7 +145,7 @@ const AssetSchema = CollectionSchema(
   idName: r'isarId',
   indexes: {
     r'id': IndexSchema(
-      id: -3268401673993471357,
+      id: 2,
       name: r'id',
       unique: false,
       replace: false,
