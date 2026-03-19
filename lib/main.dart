@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/app_provider.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_tab_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/settings_screen.dart';
 import 'services/local_db_service.dart';
 
 Future<void> main() async {
@@ -39,10 +38,7 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
             seedColor: const Color(0xFF2196F3),
             brightness: Brightness.dark,
           ),
-          appBarTheme: const AppBarTheme(
-            centerTitle: true,
-            elevation: 0,
-          ),
+          appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
           cardTheme: CardThemeData(
             elevation: 2,
             shape: RoundedRectangleBorder(
@@ -50,10 +46,11 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
             ),
           ),
           inputDecorationTheme: InputDecorationTheme(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           ),
         );
       case AppTheme.light:
@@ -78,12 +75,13 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
             ),
           ),
           inputDecorationTheme: InputDecorationTheme(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             filled: true,
             fillColor: Colors.grey.shade50,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
           ),
           scaffoldBackgroundColor: const Color(0xFFF5F5F5),
         );
@@ -117,7 +115,10 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
           ),
           scaffoldBackgroundColor: const Color(0xFFF1F8E9),
         );
@@ -132,10 +133,7 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
           title: '个人资产管理',
           debugShowCheckedModeBanner: false,
           theme: _getThemeData(appProvider.theme),
-          home: const AuthWrapper(),
-          routes: {
-            '/settings': (context) => const SettingsScreen(),
-          },
+          home: const MainTabScreen(),
         );
       },
     );
@@ -152,38 +150,10 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  // TODO: 替换为 PocketBase 认证状态流
-  // late final Stream<AuthState> _authStateStream;
-
-  @override
-  void initState() {
-    super.initState();
-    // TODO: 替换为 PocketBase 认证状态监听
-    // _authStateStream = Supabase.instance.client.auth.onAuthStateChange;
-  }
-
   @override
   Widget build(BuildContext context) {
     // TODO: 替换为 PocketBase 认证逻辑
-    // 暂时直接显示主页，后续添加 PocketBase 认证
-    return const HomeScreen();
-    
-    /* 原 Supabase 认证逻辑
-    return StreamBuilder<AuthState>(
-      stream: _authStateStream,
-      builder: (context, snapshot) {
-        // 检查当前会话状态
-        final session = Supabase.instance.client.auth.currentSession;
-        
-        if (session != null) {
-          // 已登录，显示主页
-          return const HomeScreen();
-        } else {
-          // 未登录，显示登录页
-          return const LoginScreen();
-        }
-      },
-    );
-    */
+    // 暂时直接显示主标签页
+    return const MainTabScreen();
   }
 }

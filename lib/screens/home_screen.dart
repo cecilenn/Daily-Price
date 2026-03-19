@@ -1,11 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
-import '../providers/app_provider.dart';
 import '../services/local_db_service.dart';
+import 'asset_detail_screen.dart';
+import 'add_edit_asset_screen.dart';
 
-/// 首页 - 资产列表与管理页面
+/// 首页 - 资产列表与管理页面（V2.0 重构版）
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -20,7 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _errorMessage;
 
   // 当前分栏
-  String _currentCategory = 'pinned';
+  String _currentCategory = 'all';
 
   // 排序状态
   String _sortBy = 'created_at';
@@ -42,26 +43,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _initData();
   }
 
-  /// 初始化数据：确保顺序加载，先加载偏好设置再加载资产
+  /// 初始化数据
   Future<void> _initData() async {
-    // 1. 首先加载偏好设置（包含默认启动分栏）
     await _loadPreferences();
-    // 2. 然后加载自定义分栏
     await _loadCustomTabs();
-    // 3. 最后加载资产数据
     await _loadAssets();
   }
 
   /// 从 SharedPreferences 加载用户偏好设置
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // 优先读取用户上次选择的分栏，如果没有则使用默认启动分栏
     final savedCategory = prefs.getString(_prefKeyCategory);
     final defaultStartupCategory = prefs.getString(_defaultStartupCategoryKey);
-
-    // 如果有保存的分栏选择，使用保存的；否则使用默认启动分栏；最后才使用 'pinned'
-    final category = savedCategory ?? defaultStartupCategory ?? 'pinned';
+    final category = savedCategory ?? defaultStartupCategory ?? 'all';
     final sortBy = prefs.getString(_prefKeySortBy) ?? 'created_at';
     final sortAscending = prefs.getBool(_prefKeySortAscending) ?? false;
 
@@ -72,10 +66,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _sortAscending = sortAscending;
       });
     }
-
-    debugPrint(
-      '[HomeScreen] 加载偏好设置：category=$category, sortBy=$sortBy, sortAscending=$sortAscending',
-    );
   }
 
   /// 保存当前分栏设置
@@ -116,7 +106,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      // 从本地数据库获取所有资产
       final assets = await LocalDbService().getAllAssets();
 
       if (mounted) {
@@ -124,14 +113,6 @@ class _HomeScreenState extends State<HomeScreen> {
           _assets = assets;
           _isLoading = false;
         });
-
-        // 更新同步时间（使用最新资产的创建时间）
-        if (assets.isNotEmpty) {
-          assets.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          if (mounted) {
-            context.read<AppProvider>().updateSyncTime(assets.first.createdAt);
-          }
-        }
       }
     } catch (e) {
       if (mounted) {
@@ -151,16 +132,16 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 切换置顶状态
   Future<void> _togglePinned(Asset asset) async {
     try {
-      // 更新置顶状态并保存到本地数据库
-      final updatedAsset = asset.copyWith(isPinned: !asset.isPinned);
+      final updatedAsset = asset.copyWith(
+        isPinned: asset.isPinned == 0 ? 1 : 0,
+      );
       await LocalDbService().saveAsset(updatedAsset);
-
       await _loadAssets(isRefresh: true);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(asset.isPinned ? '已取消置顶' : '已置顶'),
+            content: Text(asset.isPinned == 1 ? '已取消置顶' : '已置顶'),
             backgroundColor: Colors.blue,
           ),
         );
@@ -197,9 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirmed == true) {
       try {
-        // 从本地数据库删除资产
         await LocalDbService().deleteAsset(asset.id);
-
         await _loadAssets(isRefresh: true);
 
         if (mounted) {
@@ -221,19 +200,60 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 格式化金额
-  String _formatCurrency(double amount) {
+  String _formatCurrency(double? amount) {
+    if (amount == null) return '-';
     return '¥${amount.toStringAsFixed(2)}';
   }
 
   /// 格式化天数
-  String _formatDays(int days) {
-    final appProvider = context.watch<AppProvider>();
-    return DateParser.formatDays(
-      days,
-      style: appProvider.dateFormatStyle == DateFormatStyle.days
-          ? 'days'
-          : 'combined',
-    );
+  String _formatDays(int? days) {
+    if (days == null) return '-';
+    return Asset.formatDays(days, style: 'combined');
+  }
+
+  /// 格式化日期戳为字符串
+  String _formatDateFromTimestamp(int? timestamp) {
+    if (timestamp == null) return '-';
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// 获取全局统计数据
+  Map<String, dynamic> _calculateStats() {
+    double totalAssets = 0;
+    double dailyCost = 0;
+    int activeCount = 0;
+    int retiredCount = 0;
+    int soldCount = 0;
+
+    for (final asset in _assets) {
+      // 统计状态
+      if (asset.status == 0) {
+        activeCount++;
+      } else if (asset.status == 1) {
+        retiredCount++;
+      } else if (asset.status == 2) {
+        soldCount++;
+      }
+
+      // 计算总资产（排除 excludeFromTotal）
+      if (asset.excludeFromTotal == 0 && asset.purchasePrice != null) {
+        totalAssets += asset.purchasePrice!;
+      }
+
+      // 计算日均消费（排除 excludeFromDaily）
+      if (asset.excludeFromDaily == 0) {
+        dailyCost += asset.dailyCost;
+      }
+    }
+
+    return {
+      'totalAssets': totalAssets,
+      'dailyCost': dailyCost,
+      'activeCount': activeCount,
+      'retiredCount': retiredCount,
+      'soldCount': soldCount,
+    };
   }
 
   /// 获取过滤后的资产列表
@@ -241,13 +261,10 @@ class _HomeScreenState extends State<HomeScreen> {
     List<Asset> filtered;
 
     if (_currentCategory == 'all') {
-      // 全部：展示所有资产
       filtered = List.from(_assets);
     } else if (_currentCategory == 'pinned') {
-      filtered = _assets.where((a) => a.isPinned).toList();
+      filtered = _assets.where((a) => a.isPinned == 1).toList();
     } else if (_currentCategory.startsWith('custom_')) {
-      // 自定义分栏：根据 tags 过滤
-      // 注意：tags 中存储的是 'custom_xxx' 格式，与 _currentCategory 格式一致
       filtered = _assets
           .where((a) => a.tags.contains(_currentCategory))
           .toList();
@@ -255,7 +272,14 @@ class _HomeScreenState extends State<HomeScreen> {
       filtered = _assets.where((a) => a.category == _currentCategory).toList();
     }
 
+    // V2.0 置顶优先级排序：isPinned 永远排第一
     filtered.sort((a, b) {
+      // 第一排序规则：置顶优先
+      if (a.isPinned != b.isPinned) {
+        return b.isPinned - a.isPinned;
+      }
+
+      // 第二排序规则：用户选择的排序字段
       int result;
       switch (_sortBy) {
         case 'name':
@@ -265,7 +289,9 @@ class _HomeScreenState extends State<HomeScreen> {
           result = a.purchaseDate.compareTo(b.purchaseDate);
           break;
         case 'price':
-          result = a.purchasePrice.compareTo(b.purchasePrice);
+          final priceA = a.purchasePrice ?? 0;
+          final priceB = b.purchasePrice ?? 0;
+          result = priceA.compareTo(priceB);
           break;
         case 'created_at':
         default:
@@ -289,7 +315,6 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'subscription':
         return '限时资产';
       default:
-        // 自定义分栏：移除 'custom_' 前缀后返回
         if (value.startsWith('custom_')) {
           return value.substring(7);
         }
@@ -315,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final filteredAssets = _filteredAssets;
+    final stats = _calculateStats();
 
     return Scaffold(
       appBar: AppBar(
@@ -328,7 +354,6 @@ class _HomeScreenState extends State<HomeScreen> {
         leading: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 分栏菜单（原筛选按钮更名）
             PopupMenuButton<String>(
               icon: const Icon(Icons.folder_outlined),
               tooltip: '分栏',
@@ -344,7 +369,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text('限时资产'),
                   ),
                 ];
-                // 动态添加自定义分栏
                 if (_customTabs.isNotEmpty) {
                   items.add(const PopupMenuDivider());
                   for (final tab in _customTabs) {
@@ -371,7 +395,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 return items;
               },
             ),
-            // 排序菜单（从右侧移到左侧）
             PopupMenuButton<String>(
               icon: const Icon(Icons.sort),
               tooltip: '排序',
@@ -447,22 +470,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         leadingWidth: 100,
         actions: [
-          // 添加按钮
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => _showAssetForm(),
+            onPressed: () => _navigateToAddAsset(),
             tooltip: '添加资产',
-          ),
-          // 设置按钮
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () async {
-              await Navigator.pushNamed(context, '/settings');
-              // 从设置页返回时，重新读取自定义分栏并刷新资产数据
-              await _loadCustomTabs();
-              await _loadAssets(isRefresh: true);
-            },
-            tooltip: '设置',
           ),
         ],
       ),
@@ -477,6 +488,9 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // V2.0 新增：顶部数据统计卡片
+                  _buildStatsCard(stats),
+                  const SizedBox(height: 8),
                   // 资产列表标题
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -498,7 +512,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // 加载状态
                   if (_isLoading)
                     const Center(
                       child: Padding(
@@ -506,7 +519,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: CircularProgressIndicator(),
                       ),
                     )
-                  // 错误状态
                   else if (_errorMessage != null)
                     Center(
                       child: Padding(
@@ -533,7 +545,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     )
-                  // 空状态
                   else if (filteredAssets.isEmpty)
                     Center(
                       child: Padding(
@@ -567,9 +578,27 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     )
-                  // 资产列表
                   else
-                    ...filteredAssets.map((asset) => _buildAssetCard(asset)),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            childAspectRatio: 1.2,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                          ),
+                      padding: const EdgeInsets.only(
+                        bottom: 120,
+                        left: 4,
+                        right: 4,
+                        top: 4,
+                      ),
+                      itemCount: filteredAssets.length,
+                      itemBuilder: (context, index) =>
+                          _buildAssetCard(filteredAssets[index]),
+                    ),
                 ],
               ),
             ),
@@ -579,907 +608,387 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 构建资产卡片
-  Widget _buildAssetCard(Asset asset) {
+  /// V2.0 新增：构建顶部数据统计卡片
+  Widget _buildStatsCard(Map<String, dynamic> stats) {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-      elevation: 1,
-      color: asset.isSold ? Colors.grey.shade200 : null,
-      child: Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '全局统计',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Row(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          if (asset.isPinned)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: Icon(
-                                Icons.push_pin,
-                                size: 14,
-                                color: Colors.orange.shade700,
-                              ),
-                            ),
-                          Flexible(
-                            child: Text(
-                              asset.assetName,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                decoration: asset.isSold
-                                    ? TextDecoration.lineThrough
-                                    : null,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // 操作菜单
-                    PopupMenuButton<String>(
-                      icon: const Icon(Icons.more_vert, size: 18),
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'edit':
-                            _showAssetForm(asset: asset);
-                            break;
-                          case 'pin':
-                            _togglePinned(asset);
-                            break;
-                          case 'delete':
-                            _deleteAsset(asset);
-                            break;
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                          value: 'edit',
-                          child: Row(
-                            children: [
-                              Icon(Icons.edit, size: 18),
-                              SizedBox(width: 8),
-                              Text('编辑'),
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'pin',
-                          child: Row(
-                            children: [
-                              Icon(
-                                asset.isPinned
-                                    ? Icons.push_pin_outlined
-                                    : Icons.push_pin,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(asset.isPinned ? '取消置顶' : '置顶'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete, size: 18, color: Colors.red),
-                              SizedBox(width: 8),
-                              Text('删除', style: TextStyle(color: Colors.red)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                Expanded(
+                  child: _buildStatItem(
+                    icon: Icons.account_balance_wallet,
+                    label: '总资产',
+                    value: _formatCurrency(stats['totalAssets']),
+                    color: Colors.blue,
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildInfoItem(
-                        icon: Icons.attach_money,
-                        label: '购入价格',
-                        value: _formatCurrency(asset.purchasePrice),
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildInfoItem(
-                        icon: Icons.calendar_today,
-                        label: '预计使用',
-                        value: _formatDays(asset.expectedLifespanDays),
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildStatItem(
+                    icon: Icons.trending_up,
+                    label: '日均消费',
+                    value: _formatCurrency(stats['dailyCost']),
+                    color: Colors.orange,
+                  ),
                 ),
-                const SizedBox(height: 6),
-                if (asset.isSold) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.sell,
-                          label: '卖出价格',
-                          value: _formatCurrency(asset.soldPrice ?? 0),
-                          valueColor: Colors.green,
-                        ),
-                      ),
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.trending_up,
-                          label: '实际日均',
-                          value: _formatCurrency(asset.actualDailyCost),
-                          valueColor: Colors.purple,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.timelapse,
-                          label: '使用天数',
-                          value: _formatDays(asset.actualUsedDays),
-                        ),
-                      ),
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: asset.soldProfitOrLoss >= 0
-                              ? Icons.arrow_upward
-                              : Icons.arrow_downward,
-                          label: '盈亏',
-                          value: _formatCurrency(asset.soldProfitOrLoss.abs()),
-                          valueColor: asset.soldProfitOrLoss >= 0
-                              ? Colors.green
-                              : Colors.red,
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else if (asset.category == 'subscription') ...[
-                  // 限时资产显示
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.trending_up,
-                          label: '日均成本',
-                          value: _formatCurrency(asset.dailyCost),
-                          valueColor: const Color(0xFF2196F3),
-                        ),
-                      ),
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.event_busy,
-                          label: '到期日期',
-                          value: asset.expireDate != null
-                              ? '${asset.expireDate!.year}-${asset.expireDate!.month.toString().padLeft(2, '0')}-${asset.expireDate!.day.toString().padLeft(2, '0')}'
-                              : '未设置',
-                          valueColor:
-                              (asset.expireDate != null &&
-                                  asset.expireDate!.isBefore(DateTime.now()))
-                              ? Colors.red
-                              : Colors.orange,
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.trending_up,
-                          label: '日均成本',
-                          value: _formatCurrency(asset.dailyCost),
-                          valueColor: const Color(0xFF2196F3),
-                        ),
-                      ),
-                      Expanded(
-                        child: _buildInfoItem(
-                          icon: Icons.hourglass_empty,
-                          label: '剩余天数',
-                          value: _formatDays(asset.remainingDays),
-                          valueColor: asset.isExpired
-                              ? Colors.red
-                              : Colors.orange,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ],
             ),
-          ),
-          // 已出售印章
-          if (asset.isSold)
-            Positioned(
-              right: 50,
-              top: 16,
-              child: Transform.rotate(
-                angle: -0.3,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red.shade400, width: 1.5),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '已出售',
-                    style: TextStyle(
-                      color: Colors.red.shade400,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    icon: Icons.check_circle,
+                    label: '服役中',
+                    value: '${stats['activeCount']}',
+                    color: Colors.green,
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// 构建信息项
-  Widget _buildInfoItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    Color? valueColor,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: Colors.grey),
-        const SizedBox(width: 3),
-        Text(
-          '$label: ',
-          style: const TextStyle(color: Colors.grey, fontSize: 12),
-        ),
-        Flexible(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: valueColor ?? Colors.black87,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 显示添加/编辑资产表单
-  Future<void> _showAssetForm({Asset? asset}) async {
-    final isEditing = asset != null;
-
-    // 表单控制器
-    final nameController = TextEditingController(text: asset?.assetName ?? '');
-    final priceController = TextEditingController(
-      text: asset?.purchasePrice.toString() ?? '',
-    );
-    final expectedDaysController = TextEditingController(
-      text: asset?.expectedLifespanDays.toString() ?? '',
-    );
-
-    // 日期控制器
-    final purchaseDateController = TextEditingController(
-      text: asset != null
-          ? '${asset.purchaseDate.year}-${asset.purchaseDate.month.toString().padLeft(2, '0')}-${asset.purchaseDate.day.toString().padLeft(2, '0')}'
-          : '',
-    );
-    final soldDateController = TextEditingController(
-      text: asset?.soldDate != null
-          ? '${asset!.soldDate!.year}-${asset.soldDate!.month.toString().padLeft(2, '0')}-${asset.soldDate!.day.toString().padLeft(2, '0')}'
-          : '',
-    );
-
-    // 表单状态
-    String category = asset?.category ?? 'physical';
-    DateTime purchaseDate = asset?.purchaseDate ?? DateTime.now();
-    bool isPinned = asset?.isPinned ?? false;
-    bool isSold = asset?.isSold ?? false;
-    double? soldPrice = asset?.soldPrice;
-    DateTime? soldDate = asset?.soldDate;
-    DateTime? expireDate = asset?.expireDate;
-    List<String> selectedTags = asset?.tags.toList() ?? [];
-    List<Map<String, dynamic>> renewalHistory =
-        (asset?.renewalHistory as List<dynamic>?)
-            ?.map((e) => Map<String, dynamic>.from(e as Map))
-            .toList() ??
-        [];
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: true,
-      useSafeArea: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => DraggableScrollableSheet(
-          initialChildSize: 0.85,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) => Container(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: SingleChildScrollView(
-              controller: scrollController,
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 标题
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        isEditing ? '编辑资产' : '添加资产',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildStatItem(
+                    icon: Icons.pause_circle,
+                    label: '已退役',
+                    value: '${stats['retiredCount']}',
+                    color: Colors.grey,
                   ),
-                  const SizedBox(height: 16),
-
-                  // 资产类型选择器（编辑模式下不可修改）
-                  if (!isEditing) ...[
-                    const Text(
-                      '资产类型',
-                      style: TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 8),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(
-                          value: 'physical',
-                          label: Text('实体'),
-                          icon: Icon(Icons.inventory_2),
-                        ),
-                        ButtonSegment(
-                          value: 'virtual',
-                          label: Text('虚拟'),
-                          icon: Icon(Icons.cloud),
-                        ),
-                        ButtonSegment(
-                          value: 'subscription',
-                          label: Text('限时'),
-                          icon: Icon(Icons.timer),
-                        ),
-                      ],
-                      selected: {category},
-                      onSelectionChanged: (Set<String> selection) {
-                        setModalState(() {
-                          category = selection.first;
-                          // 切换类型时重置一些状态
-                          if (category == 'subscription') {
-                            isSold = false;
-                            soldPrice = null;
-                            soldDate = null;
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // 资产名称
-                  TextFormField(
-                    controller: nameController,
-                    decoration: const InputDecoration(
-                      labelText: '资产名称',
-                      hintText: '例如：Mac Mini M4',
-                      prefixIcon: Icon(Icons.inventory_2_outlined),
-                      border: OutlineInputBorder(),
-                    ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildStatItem(
+                    icon: Icons.money,
+                    label: '已卖出',
+                    value: '${stats['soldCount']}',
+                    color: Colors.purple,
                   ),
-                  const SizedBox(height: 12),
-
-                  // 购入价格
-                  TextFormField(
-                    controller: priceController,
-                    decoration: const InputDecoration(
-                      labelText: '购入价格',
-                      hintText: '例如：4499',
-                      prefixIcon: Icon(Icons.attach_money),
-                      prefixText: '¥ ',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 预计使用时长
-                  TextFormField(
-                    controller: expectedDaysController,
-                    decoration: const InputDecoration(
-                      labelText: '预计使用时长',
-                      hintText: '例如：5 年、1 年 6 个月、1825 天',
-                      prefixIcon: Icon(Icons.timelapse),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 购买日期
-                  TextFormField(
-                    controller: purchaseDateController,
-                    decoration: const InputDecoration(
-                      labelText: '购买日期',
-                      hintText: '未填写默认当前日期',
-                      prefixIcon: Icon(Icons.event),
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (value) {
-                      // 支持手动输入日期解析
-                      final parsed = Asset.parseCustomDate(value);
-                      if (parsed != null) {
-                        purchaseDate = parsed;
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 标签选择器（仅当有自定义分栏时显示）
-                  if (_customTabs.isNotEmpty) ...[
-                    const Text(
-                      '自定义标签',
-                      style: TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: _customTabs.map((tab) {
-                        // 标签存储格式为 'custom_xxx'，与分栏值保持一致
-                        final tagValue = 'custom_$tab';
-                        final isSelected = selectedTags.contains(tagValue);
-                        return FilterChip(
-                          label: Text(
-                            tab,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setModalState(() {
-                              if (selected) {
-                                selectedTags.add(tagValue);
-                              } else {
-                                selectedTags.remove(tagValue);
-                              }
-                            });
-                          },
-                          selectedColor: Theme.of(
-                            context,
-                          ).primaryColor.withOpacity(0.2),
-                          checkmarkColor: Theme.of(context).primaryColor,
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // 是否置顶（所有资产类型都可置顶）
-                  SwitchListTile(
-                    title: const Text('是否置顶'),
-                    subtitle: const Text('置顶的资产会显示在首页置顶列表'),
-                    value: isPinned,
-                    onChanged: (value) {
-                      setModalState(() => isPinned = value);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // 实体/虚拟资产特有字段
-                  if (category != 'subscription') ...[
-                    // 是否已出售（编辑模式下显示）
-                    if (isEditing) ...[
-                      SwitchListTile(
-                        title: const Text('是否已出售'),
-                        value: isSold,
-                        onChanged: (value) {
-                          setModalState(() => isSold = value);
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      // 已出售的额外字段
-                      if (isSold) ...[
-                        TextFormField(
-                          initialValue: soldPrice?.toString() ?? '',
-                          decoration: const InputDecoration(
-                            labelText: '卖出价格',
-                            prefixIcon: Icon(Icons.sell),
-                            prefixText: '¥ ',
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          onChanged: (value) {
-                            soldPrice = double.tryParse(value);
-                          },
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextFormField(
-                          controller: soldDateController,
-                          decoration: const InputDecoration(
-                            labelText: '出售日期',
-                            hintText: '未填写默认当前日期',
-                            prefixIcon: Icon(Icons.event_available),
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (value) {
-                            // 支持手动输入日期解析
-                            final parsed = Asset.parseCustomDate(value);
-                            if (parsed != null) {
-                              soldDate = parsed;
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                    ],
-                  ],
-
-                  // 限时资产特有字段
-                  if (category == 'subscription') ...[
-                    // 到期日期自动计算提示
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            color: Colors.blue.shade700,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              expireDate != null
-                                  ? '到期日期将自动计算：${expireDate!.year}-${expireDate!.month.toString().padLeft(2, '0')}-${expireDate!.day.toString().padLeft(2, '0')}'
-                                  : '到期日期将根据购买日期和使用时长自动计算',
-                              style: TextStyle(
-                                color: Colors.blue.shade700,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 续费记录
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  '续费记录',
-                                  style: TextStyle(fontWeight: FontWeight.w500),
-                                ),
-                                TextButton.icon(
-                                  icon: const Icon(Icons.add, size: 18),
-                                  label: const Text('新增'),
-                                  onPressed: () => _showAddRenewalDialog(
-                                    context,
-                                    renewalHistory,
-                                    expireDate,
-                                    (newHistory, newExpireDate) {
-                                      setModalState(() {
-                                        renewalHistory = newHistory;
-                                        expireDate = newExpireDate;
-                                      });
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (renewalHistory.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text(
-                                  '暂无续费记录',
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                              )
-                            else
-                              ...renewalHistory.map(
-                                (record) => ListTile(
-                                  dense: true,
-                                  leading: const Icon(Icons.replay, size: 20),
-                                  title: Text(
-                                    '¥${record['price']?.toString() ?? '0'}',
-                                  ),
-                                  subtitle: Text(
-                                    '${record['date'] ?? ''} · +${record['days'] ?? 0} 天',
-                                  ),
-                                  trailing: IconButton(
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      size: 18,
-                                    ),
-                                    onPressed: () {
-                                      setModalState(() {
-                                        renewalHistory.remove(record);
-                                      });
-                                    },
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // 保存按钮
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        // 验证输入
-                        if (nameController.text.trim().isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('请输入资产名称'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          return;
-                        }
-                        final price = double.tryParse(priceController.text);
-                        if (price == null || price <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('请输入有效的购入价格'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          return;
-                        }
-                        final days = Asset.parseExpectedDays(
-                          expectedDaysController.text,
-                        );
-                        if (days <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('请输入有效的预计使用时长'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          return;
-                        }
-
-                        Navigator.pop(context);
-
-                        // 保存数据到本地数据库
-                        try {
-                          // 计算限时资产的到期日期
-                          DateTime? calculatedExpireDate = expireDate;
-                          if (category == 'subscription') {
-                            calculatedExpireDate = purchaseDate.add(
-                              Duration(days: days),
-                            );
-                          }
-
-                          // 构建资产对象
-                          final newAsset = Asset.create(
-                            id: isEditing ? asset!.id : null,
-                            assetName: nameController.text.trim(),
-                            purchasePrice: price,
-                            expectedLifespanDays: days,
-                            purchaseDate: purchaseDate,
-                            isPinned: isPinned,
-                            isSold: isSold,
-                            soldPrice: isSold ? soldPrice : null,
-                            soldDate: isSold ? soldDate : null,
-                            category: category,
-                            expireDate: calculatedExpireDate,
-                            renewalHistory: renewalHistory,
-                            tags: selectedTags,
-                          );
-
-                          // 保存到本地数据库
-                          await LocalDbService().saveAsset(newAsset);
-
-                          await _loadAssets(isRefresh: true);
-
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(isEditing ? '资产已更新' : '资产添加成功'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('保存失败：$e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2196F3),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: Text(isEditing ? '保存修改' : '添加资产'),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 显示添加续费记录对话框
-  void _showAddRenewalDialog(
-    BuildContext context,
-    List<Map<String, dynamic>> currentHistory,
-    DateTime? currentExpireDate,
-    Function(List<Map<String, dynamic>>, DateTime?) onUpdate,
-  ) {
-    final priceController = TextEditingController();
-    final daysController = TextEditingController();
-    final dateController = TextEditingController();
-    DateTime renewalDate = DateTime.now();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新增续费记录'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: priceController,
-              decoration: const InputDecoration(
-                labelText: '续费金额',
-                prefixText: '¥ ',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: daysController,
-              decoration: const InputDecoration(
-                labelText: '续费时长',
-                hintText: '例如：1 年、6 个月、365 天',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: dateController,
-              decoration: const InputDecoration(
-                labelText: '付费日期',
-                hintText: '例如：2026-01-01、2026 年 1 月 1 日',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                final parsed = Asset.parseCustomDate(value);
-                if (parsed != null) {
-                  renewalDate = parsed;
-                }
-              },
+                ),
+              ],
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final price = double.tryParse(priceController.text);
-              final days = Asset.parseExpectedDays(daysController.text);
+      ),
+    );
+  }
 
-              if (price == null || price <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('请输入有效的金额'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-              if (days <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('请输入有效的续费时长'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              final newRecord = {
-                'date':
-                    '${renewalDate.year}-${renewalDate.month.toString().padLeft(2, '0')}-${renewalDate.day.toString().padLeft(2, '0')}',
-                'price': price,
-                'days': days,
-              };
-
-              // 计算新的到期日期：基于当前到期日期（或购买日期）+ 续费时长
-              DateTime newExpireDate;
-              if (currentExpireDate != null &&
-                  currentExpireDate.isAfter(DateTime.now())) {
-                // 如果当前到期日期还未过期，从到期日期开始计算
-                newExpireDate = currentExpireDate.add(Duration(days: days));
-              } else {
-                // 否则从续费日期开始计算
-                newExpireDate = renewalDate.add(Duration(days: days));
-              }
-
-              final newHistory = [...currentHistory, newRecord];
-
-              Navigator.pop(context);
-              onUpdate(newHistory, newExpireDate);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2196F3),
-              foregroundColor: Colors.white,
+  /// 构建统计子项
+  Widget _buildStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
-            child: const Text('确定'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
         ],
       ),
     );
+  }
+
+  /// 构建资产卡片（V2.0 双列网格紧凑型卡片）
+  Widget _buildAssetCard(Asset asset) {
+    // 状态颜色指示器
+    final statusColor = _getStatusColor(asset.status);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 1,
+      color: asset.status == 2 ? Colors.grey.shade200 : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          // 点击跳转到详情页
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AssetDetailScreen(asset: asset),
+            ),
+          );
+        },
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 顶部：状态指示器 + 置顶标记
+                  SizedBox(
+                    height: 14,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // 状态颜色小圆点
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        // 置顶标记（如有）
+                        if (asset.isPinned == 1)
+                          Icon(
+                            Icons.push_pin,
+                            size: 12,
+                            color: Colors.orange.shade600,
+                          )
+                        else
+                          const SizedBox(width: 12),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+
+                  // 中部：资产头像（精致居中）
+                  _buildAvatarLarge(asset),
+                  const SizedBox(height: 6),
+
+                  // 中部：资产名称（最多1行）
+                  Text(
+                    asset.assetName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      decoration: asset.status == 2
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: asset.status == 2
+                          ? Colors.grey.shade600
+                          : Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+
+                  // 底部：日均成本（突出显示，主题色）
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 日均成本 - 带标签突出显示
+                      Text(
+                        '日均: ${_formatCurrency(asset.dailyCost)}',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      // 购入价格 - 带标签弱化显示
+                      Text(
+                        '买入: ${_formatCurrency(asset.purchasePrice)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // 已卖出印章（半透明覆盖）
+            if (asset.status == 2)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100.withOpacity(0.3),
+                  ),
+                  child: Center(
+                    child: Transform.rotate(
+                      angle: -0.4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Colors.red.shade300,
+                            width: 1.2,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                        child: Text(
+                          '已卖出',
+                          style: TextStyle(
+                            color: Colors.red.shade400,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 获取状态颜色
+  Color _getStatusColor(int status) {
+    switch (status) {
+      case 0: // 服役中
+        return Colors.green;
+      case 1: // 已退役
+        return Colors.grey;
+      case 2: // 已卖出
+        return Colors.red.shade400;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  /// 构建大头像（网格卡片专用）
+  Widget _buildAvatarLarge(Asset asset) {
+    if (asset.avatarPath != null && File(asset.avatarPath!).existsSync()) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.file(
+          File(asset.avatarPath!),
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else {
+      // 文字头像
+      final firstChar = asset.assetName.isNotEmpty
+          ? asset.assetName[0].toUpperCase()
+          : '?';
+      final colors = [
+        Colors.blue,
+        Colors.green,
+        Colors.orange,
+        Colors.purple,
+        Colors.teal,
+        Colors.pink,
+        Colors.indigo,
+      ];
+      final color = colors[asset.assetName.hashCode % colors.length];
+      return Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Center(
+          child: Text(
+            firstChar,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  /// 构建头像（有图显示图，无图显示首字母）
+  Widget _buildAvatar(Asset asset) {
+    if (asset.avatarPath != null && File(asset.avatarPath!).existsSync()) {
+      return CircleAvatar(
+        radius: 24,
+        backgroundImage: FileImage(File(asset.avatarPath!)),
+      );
+    } else {
+      // 文字头像
+      final firstChar = asset.assetName.isNotEmpty
+          ? asset.assetName[0].toUpperCase()
+          : '?';
+      final colors = [
+        Colors.blue,
+        Colors.green,
+        Colors.orange,
+        Colors.purple,
+        Colors.teal,
+        Colors.pink,
+        Colors.indigo,
+      ];
+      final color = colors[asset.assetName.hashCode % colors.length];
+      return CircleAvatar(
+        radius: 24,
+        backgroundColor: color.withOpacity(0.1),
+        child: Text(
+          firstChar,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      );
+    }
+  }
+
+  /// 跳转到添加资产页面
+  Future<void> _navigateToAddAsset() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (context) => const AddEditAssetScreen()),
+    );
+    if (result == true && mounted) {
+      await _loadAssets(isRefresh: true);
+    }
+  }
+
+  /// 跳转到编辑资产页面
+  Future<void> _navigateToEditAsset(Asset asset) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddEditAssetScreen(existingAsset: asset),
+      ),
+    );
+    if (result == true && mounted) {
+      await _loadAssets(isRefresh: true);
+    }
   }
 }

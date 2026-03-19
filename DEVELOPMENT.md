@@ -1,533 +1,387 @@
-# 🛠️ 开发与测试指南
+# 🛠️ DEVELOPMENT.md - Daily Price 开发者指南
 
-> 欢迎来到 Daily Price 项目！这份指南将手把手带你完成环境配置、项目运行和测试验证，即使你之前没有 Flutter 开发经验也能轻松上手 😊
-
----
-
-## 📋 环境准备
-
-### 必需软件清单
-
-在开始前，请确保你的电脑已安装以下软件：
-
-| 软件 | 推荐版本 | 用途 | 下载链接 |
-|------|----------|------|----------|
-| **Flutter SDK** | 3.11.0 或更高 | 跨平台开发框架 | [官网下载](https://docs.flutter.dev/get-started/install) |
-| **Dart SDK** | 3.11.0 或更高 | Dart 语言运行环境 | 随 Flutter 一起安装 |
-| **Android Studio** | 最新版 | Android 模拟器 + SDK | [官网下载](https://developer.android.com/studio) |
-| **Xcode** | 最新版 | iOS/macOS 开发（仅限 Mac） | App Store 下载 |
-| **Git** | 任意版本 | 代码版本管理 | [官网下载](https://git-scm.com/downloads) |
-| **VS Code** | 最新版（推荐） | 代码编辑器 | [官网下载](https://code.visualstudio.com/) |
-
-### 验证安装
-
-打开终端，运行以下命令检查环境：
-
-```bash
-# 检查 Flutter 是否安装成功
-flutter --version
-
-# 检查 Flutter 环境是否完整（这个命令会列出所有环境配置）
-flutter doctor
-```
-
-> 💡 **提示**：运行 `flutter doctor` 后，如果有红色 ❌ 标记的项目，请按照提示进行修复。
-> 常见的需要修复项包括：Android SDK、Xcode command line tools、Android 模拟器等。
+> 本文档旨在帮助后续协同开发者快速理解项目架构、上手开发。
 
 ---
 
-## 🚀 项目初始化
+## 📁 目录结构
 
-### 第一步：克隆代码仓库
-
-```bash
-# 进入你想要存放项目的文件夹（比如 Documents 或 Projects）
-cd ~/Documents
-
-# 克隆代码仓库
-git clone https://github.com/cecilenn/Daily-Price.git
-
-# 进入项目目录
-cd Daily-Price
+```
+lib/
+├── main.dart                 # 应用入口
+├── models/
+│   └── asset.dart            # 核心资产模型
+├── providers/
+│   └── app_provider.dart     # 全局状态管理
+├── screens/
+│   ├── main_tab_screen.dart  # 主容器（悬浮导航栏）
+│   ├── home_screen.dart      # 首页（资产网格列表）
+│   ├── add_edit_asset_screen.dart  # 添加/编辑资产
+│   ├── asset_detail_screen.dart    # 资产详情页
+│   ├── analysis_screen.dart  # 分析统计页
+│   └── settings_screen.dart  # 设置页
+├── services/
+│   └── local_db_service.dart # SQLite 数据库服务
+├── utils/
+│   └── image_utils.dart      # 图片选择/裁剪工具
+└── widgets/
+    └── asset_form_dialog.dart # 资产表单弹窗组件
 ```
 
-### 第二步：安装依赖包
+### 职责说明
 
-```bash
-# 安装 Flutter 项目依赖（这个过程可能需要几分钟，请耐心等待）
-flutter pub get
-```
-
-> 💡 **小贴士**：如果你在中国大陆，可能会遇到网络问题。可以配置 Flutter 使用国内镜像：
-> ```bash
-> # 临时使用清华镜像
-> export PUB_HOSTED_URL="https://mirrors.tuna.tsinghua.edu.cn/dart-pub"
-> export FLUTTER_STORAGE_BASE_URL="https://mirrors.tuna.tsinghua.edu.cn/flutter"
-> flutter pub get
-> ```
-
-### 第三步：验证项目结构
-
-```bash
-# 查看项目文件结构
-ls -la
-
-# 检查关键文件是否存在
-ls lib/models/ lib/services/
-```
-
-> ⚠️ **注意**：迁移到 sqflite 后，**不再需要运行 `build_runner`**！项目启动更加简单。
+| 目录 | 职责 |
+|------|------|
+| `models/` | 纯数据模型，包含字段定义、计算属性、序列化方法 |
+| `screens/` | 页面级 Widget，处理业务逻辑和 UI 布局 |
+| `services/` | 数据层服务，封装数据库操作、文件 I/O 等 |
+| `providers/` | 全局状态管理（Provider 模式） |
+| `utils/` | 工具类，如图片处理、日期格式化等 |
+| `widgets/` | 可复用的 UI 组件 |
 
 ---
 
-## 💻 本地运行
+## 🗄️ 数据库演进：V1 → V2
 
-### 方式一：在模拟器中运行（推荐新手）
+### 为什么从 Isar 迁移到 SQLite
 
-#### 启动 Android 模拟器
+**历史背景**：
+- **V1 时代**：使用 Isar 作为本地数据库，享受其链式查询和类型安全的优点
+- **V2 决策**：迁移至 `sqflite`（SQLite）
 
-**方法 A：通过 Android Studio 启动（推荐）**
+**迁移原因**：
+1. **兼容性更广**：SQLite 是 Flutter 生态中支持最广泛、最稳定的本地数据库方案
+2. **稳定性更高**：Isar 在大型数据量下偶发性能问题，SQLite 经过数十年生产验证
+3. **多表联查潜力**：SQLite 原生支持复杂 SQL 查询，为未来功能扩展预留空间
+4. **依赖精简**：移除 Isar 的复杂编译依赖，简化构建流程
 
-1. 打开 Android Studio
-2. 点击右上角 📱 设备管理器（Device Manager）
-3. 点击 ➕ 创建新设备（如果没有现有设备）
-4. 选择一个设备型号（推荐 Pixel 6 或 Pixel 7）
-5. 下载并选择一个系统镜像（推荐 Android 13 或更高）
-6. 点击 ▶️ 启动模拟器
+### 当前 assets 表结构
 
-**方法 B：通过命令行启动**
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `id` | TEXT PRIMARY KEY | UUID v4 主键 |
+| `asset_name` | TEXT NOT NULL | 资产名称 |
+| `purchase_price` | REAL | 购入价格（可为空） |
+| `purchase_date` | INTEGER NOT NULL | 购买日期（毫秒时间戳） |
+| `is_pinned` | INTEGER DEFAULT 0 | 是否置顶（0/1） |
+| `category` | TEXT DEFAULT 'physical' | 资产分类 |
+| `tags` | TEXT DEFAULT '[]' | 标签 JSON 数组 |
+| `created_at` | INTEGER NOT NULL | 创建时间（毫秒时间戳） |
+| `status` | INTEGER DEFAULT 0 | 状态（0服役中/1已退役/2已卖出） |
+| `expected_lifespan_days` | INTEGER | 预计使用天数 |
+| `expire_date` | INTEGER | 到期日（毫秒时间戳） |
+| `sold_price` | REAL | 卖出价格 |
+| `sold_date` | INTEGER | 卖出日期（毫秒时间戳） |
+| `avatar_path` | TEXT | 头像本地路径 |
+| `exclude_from_total` | INTEGER DEFAULT 0 | 不计入总资产 |
+| `exclude_from_daily` | INTEGER DEFAULT 0 | 不计入日均 |
 
-```bash
-# 列出所有可用的模拟器
-flutter emulators
+### 核心字段计算逻辑
 
-# 启动指定模拟器（将 <emulator_id> 替换为实际的 ID）
-flutter emulators --launch <emulator_id>
-
-# 例如：
-flutter emulators --launch Pixel_6_API_33
-```
-
-#### 启动 iOS 模拟器（仅限 Mac）
-
-```bash
-# 打开 iOS 模拟器
-open -a Simulator
-```
-
-### 方式二：在真机上运行
-
-#### Android 真机
-
-1. **开启开发者模式**：
-   - 进入手机设置 → 关于手机 → 连续点击"版本号"7 次
-   - 返回设置 → 开发者选项 → 开启"USB 调试"
-
-2. **连接电脑**：
-   - 用 USB 线连接手机和电脑
-   - 手机上允许 USB 调试授权
-
-3. **验证连接**：
-   ```bash
-   flutter devices
-   ```
-   应该能看到你的设备出现在列表中
-
-#### iOS 真机（仅限 Mac）
-
-1. 用数据线连接 iPhone
-2. 在 Xcode 中配置签名（首次需要）
-3. 运行 `flutter devices` 查看设备
-
-### 运行应用
-
-确保模拟器已启动或真机已连接后，运行：
-
-```bash
-# 启动应用（自动检测可用设备）
-flutter run
-```
-
-> 🎉 **成功标志**：你应该能看到应用界面出现在模拟器/手机上！
-
-#### 常用运行选项
-
-```bash
-# 指定设备运行（将 <device_id> 替换为实际 ID）
-flutter run -d <device_id>
-
-# 热重载模式（开发时推荐，保存代码后自动刷新）
-flutter run --hot
-
-# 调试模式（启用 Dart DevTools）
-flutter run --debug
-
-# 发布模式（测试性能时使用）
-flutter run --release
-```
-
----
-
-## 🧪 测试指南
-
-### 自动化测试
-
-本项目使用 Flutter 自带的测试框架。测试文件位于 `test/` 目录下。
-
-#### 运行所有测试
-
-```bash
-# 运行所有测试
-flutter test
-
-# 运行测试并显示详细信息
-flutter test --verbose
-
-# 运行特定测试文件
-flutter test test/widget_test.dart
-```
-
-#### 当前测试说明
-
-目前项目包含以下测试：
-
-| 测试文件 | 测试内容 | 验证点 |
-|----------|----------|--------|
-| `test/widget_test.dart` | 首页组件测试 | 验证"个人资产管理"标题、"添加资产"表单、"资产列表"是否正常显示 |
-
-**测试结果解读**：
-- ✅ **All tests passed!** - 所有测试通过
-- ❌ **Test failed** - 有测试失败，请查看错误信息
-
-#### 添加新测试（扩展）
-
-如果你想为项目添加更多测试，可以在 `test/` 目录下创建新文件：
+#### `status` 状态机
 
 ```dart
-// test/asset_model_test.dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:daily_price/models/asset.dart';
+// 0 = 服役中（Active）
+// 1 = 已退役（Retired）
+// 2 = 已卖出（Sold）
 
-void main() {
-  group('Asset Model Tests', () {
-    test('should calculate daily cost correctly', () {
-      final asset = Asset.create(
-        assetName: '测试资产',
-        purchasePrice: 1000,
-        expectedLifespanDays: 100,
-        purchaseDate: DateTime.now(),
-      );
-      
-      expect(asset.dailyCost, 10.0);  // 1000 / 100 = 10
-    });
-    
-    test('should parse expected days from natural language', () {
-      expect(Asset.parseExpectedDays('1 年'), 365);
-      expect(Asset.parseExpectedDays('6 个月'), 180);
-      expect(Asset.parseExpectedDays('1 年 6 个月'), 365 + 180);
-    });
-  });
+bool get isActive => status == 0;
+bool get isSoldOrRetired => status == 1 || status == 2;
+```
+
+#### `calculatedDays` 实际/冻结天数
+
+```dart
+int get calculatedDays {
+  final start = DateTime.fromMillisecondsSinceEpoch(purchaseDate);
+  DateTime end;
+
+  if ((status == 1 || status == 2) && soldDate != null) {
+    // 已退役/卖出：时间冻结在 soldDate
+    end = DateTime.fromMillisecondsSinceEpoch(soldDate!);
+  } else {
+    // 服役中：时间持续流逝到今天
+    end = DateTime.now();
+  }
+
+  final days = end.difference(start).inDays;
+  return days > 0 ? days : 1; // 兜底：最小为 1 天
 }
 ```
 
-### 手动测试流程
-
-如果没有自动化测试或想验证具体功能，可以按照以下流程进行手动测试：
-
-#### 核心功能验证清单
-
-| 功能模块 | 测试步骤 | 预期结果 |
-|----------|----------|----------|
-| **添加资产** | 点击"添加" → 填写名称、价格、天数 → 点击保存 | 资产出现在列表中 |
-| **资产计算** | 添加一个价格为 3650 元、100 天的资产 | 日均成本显示为 36.5 元/天 |
-| **标签筛选** | 为资产添加标签 → 点击标签进行筛选 | 只显示对应标签的资产 |
-| **置顶功能** | 点击资产卡片上的置顶按钮 | 资产移动到列表顶部 |
-| **编辑资产** | 点击资产卡片 → 修改信息 → 保存 | 信息更新成功 |
-| **删除资产** | 长按资产卡片 → 确认删除 | 资产从列表消失 |
-| **CSV 导入** | 设置 → 导入 → 选择 CSV 文件 | 数据成功导入 |
-| **CSV 导出** | 设置 → 导出 → 保存文件 | CSV 文件生成成功 |
-
-#### 手动测试操作路径
-
-1. **启动应用后**，你应该看到主界面包含：
-   - 顶部：筛选、刷新、排序、添加、设置按钮
-   - 中间：资产列表（初始为空或显示示例数据）
-   - 底部：添加资产的表单（或点击"添加"按钮弹出）
-
-2. **添加测试数据**：
-   - 资产名称："MacBook Pro"
-   - 购入价格：14999
-   - 预计使用天数：1460（或输入"4 年"）
-   - 点击保存
-
-3. **验证计算结果**：
-   - 日均成本应显示：约 10.27 元/天
-   - 剩余价值应根据使用天数动态计算
-
----
-
-## 🔧 调试指南
-
-### 使用 VS Code 调试（推荐）
-
-**配置步骤：**
-
-1. 打开 VS Code，确保安装了 **Flutter** 和 **Dart** 扩展
-2. 按 `F5` 或点击左侧调试图标 → "运行和调试"
-3. 选择 "Flutter" 配置
-4. 在代码中点击行号左侧添加断点（红点）
-5. 应用会在断点处暂停，你可以查看变量、单步执行
-
-**常用调试快捷键：**
-
-| 快捷键 | 功能 |
-|--------|------|
-| `F5` | 启动调试 |
-| `Shift + F5` | 停止调试 |
-| `F9` | 切换断点 |
-| `F10` | 单步跳过 |
-| `F11` | 单步进入 |
-| `Shift + F11` | 单步跳出 |
-
-### 使用 Dart DevTools
-
-```bash
-# 在运行应用时启动 DevTools
-flutter run --debug
-
-# 或者在应用运行时，在另一个终端打开 DevTools
-flutter pub global activate devtools
-dart devtools
-```
-
-DevTools 提供以下功能：
-- 🔍 **Widget Inspector** - 查看 UI 组件树
-- 🐛 **Debugger** - 断点调试
-- 📊 **Performance** - 性能分析
-- 🧠 **Memory** - 内存监控
-- 🌐 **Network** - 网络请求监控
-
-### 常用调试技巧
-
-**1. 打印日志调试**
+#### `dailyCost` 日均成本（核心业务逻辑）
 
 ```dart
-// 在代码中使用 print 输出调试信息
-print('资产名称：${asset.assetName}');
-print('日均成本：${asset.dailyCost}');
-```
+double get dailyCost {
+  // 基础成本：如果已卖出且有回血价，则成本 = 买入价 - 卖出价
+  double cost = purchasePrice ?? 0;
+  if (status == 2 && soldPrice != null) {
+    cost = (purchasePrice ?? 0) - soldPrice!;
+  }
 
-在 VS Code 的 DEBUG CONSOLE 中查看输出。
+  final daysUsed = calculatedDays;
 
-**2. 热重载调试**
-
-```bash
-# 在运行应用时，按以下键触发
-r  # 热重载（保留状态，快速刷新）
-R  # 热重启（重新启动应用）
-q  # 退出应用
-```
-
-**3. 检查 SQLite 数据库内容**
-
-可以使用以下工具查看 SQLite 数据库：
-
-```bash
-# macOS/Linux: 使用 sqlite3 命令行
-sqlite3 ~/Library/Application\ Support/com.example.dailyPrice/daily_price.db
-
-# 查看表结构
-.schema assets
-
-# 查询数据
-SELECT * FROM assets;
-```
-
-或者使用 GUI 工具：
-- [DB Browser for SQLite](https://sqlitebrowser.org/)（免费开源）
-- [TablePlus](https://tableplus.com/)（付费，有免费版）
-
----
-
-## 🗄️ 数据库架构说明
-
-### 数据库文件位置
-
-不同平台的数据库文件存储位置：
-
-| 平台 | 路径 |
-|------|------|
-| **Android** | `/data/data/<package_name>/databases/daily_price.db` |
-| **iOS** | `~/Library/Application Support/<bundle_id>/daily_price.db` |
-| **macOS** | `~/Library/Application Support/<bundle_id>/daily_price.db` |
-| **Windows** | `C:\Users\<username>\AppData\Roaming\<bundle_id>\daily_price.db` |
-| **Linux** | `~/.local/share/<bundle_id>/daily_price.db` |
-
-### assets 表结构
-
-```sql
-CREATE TABLE assets(
-  id TEXT PRIMARY KEY,              -- UUID v4 字符串
-  userId TEXT,                      -- 用户 ID（预留）
-  assetName TEXT NOT NULL,          -- 资产名称
-  purchasePrice REAL NOT NULL,      -- 购入价格
-  expectedLifespanDays INTEGER NOT NULL,  -- 预计使用天数
-  purchaseDate INTEGER NOT NULL,    -- 购买日期（Unix 时间戳，毫秒）
-  isPinned INTEGER DEFAULT 0,       -- 是否置顶（0 或 1）
-  isSold INTEGER DEFAULT 0,         -- 是否已出售（0 或 1）
-  soldPrice REAL,                   -- 出售价格
-  soldDate INTEGER,                 -- 出售日期（Unix 时间戳，毫秒）
-  category TEXT DEFAULT 'physical', -- 资产分类
-  expireDate INTEGER,               -- 过期日期（Unix 时间戳，毫秒）
-  renewalHistoryJson TEXT DEFAULT '[]',  -- 续费历史（JSON 字符串）
-  tags TEXT DEFAULT '[]',           -- 标签列表（JSON 字符串）
-  createdAt INTEGER NOT NULL        -- 创建时间（Unix 时间戳，毫秒）
-);
-```
-
-### 索引（可选扩展）
-
-如果未来需要优化查询性能，可以考虑添加以下索引：
-
-```sql
--- 按创建时间排序查询优化
-CREATE INDEX idx_assets_createdAt ON assets(createdAt);
-
--- 按分类查询优化
-CREATE INDEX idx_assets_category ON assets(category);
-
--- 按置顶状态查询优化
-CREATE INDEX idx_assets_isPinned ON assets(isPinned);
-```
-
-### 数据迁移
-
-如果需要修改数据库结构，需要在 `local_db_service.dart` 的 `init()` 方法中处理版本迁移：
-
-```dart
-_db = await openDatabase(
-  path,
-  version: 2,  // 每次修改结构时递增版本号
-  onCreate: (Database db, int version) async {
-    // 创建新表
-    await db.execute('CREATE TABLE assets(...)');
-  },
-  onUpgrade: (Database db, int oldVersion, int newVersion) async {
-    // 执行迁移逻辑
-    if (oldVersion < 2) {
-      await db.execute('ALTER TABLE assets ADD COLUMN newColumn TEXT');
+  // 服役中 + 设定了预期寿命 → 按预期寿命计算固定日均
+  if (status == 0 &&
+      expectedLifespanDays != null &&
+      expectedLifespanDays! > 0) {
+    if (daysUsed < expectedLifespanDays!) {
+      return cost / expectedLifespanDays!;
     }
-  },
-);
+  }
+
+  // 其他情况：按实际/冻结天数计算
+  return cost / daysUsed;
+}
 ```
 
 ---
 
-## 🆘 常见问题排查
+## 📦 第三方依赖说明
 
-### 问题 1：`flutter pub get` 失败
+### 核心依赖
 
-**症状**：依赖安装失败，网络超时
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `sqflite` | ^2.3.0 | SQLite 数据库引擎 |
+| `path` | ^1.9.0 | 路径拼接工具 |
+| `uuid` | ^4.5.3 | UUID v4 生成器 |
+| `shared_preferences` | ^2.3.3 | 本地键值对存储 |
+| `provider` | ^6.1.2 | 状态管理 |
+| `intl` | ^0.19.0 | 日期格式化 |
+| `csv` | 5.0.2 | CSV 导入导出（**版本锁定**） |
+| `image_picker` | ^1.2.1 | 系统相册选择图片 |
+| `image_cropper` | ^11.0.0 | 图片裁剪（UCrop） |
+| `path_provider` | ^2.1.5 | 获取应用文档目录 |
+| `file_picker` | ^10.3.10 | 文件选择器 |
+| `share_plus` | ^12.0.1 | 系统分享功能 |
+
+### 依赖锁定说明
+
+**⚠️ csv 包版本必须锁定为 `5.0.2`**
+
+原因：项目代码中使用了 `const ListToCsvConverter()` 和 `const CsvToListConverter()` 构造方式，这是该版本特有的 API 签名。升级可能导致编译错误。
+
+```yaml
+csv: 5.0.2  # 注意：没有 ^ 符号，锁定精确版本
+```
+
+---
+
+## 🐛 打包与构建踩坑记录
+
+### Android Release 打包：R8 混淆问题
+
+**问题现象**：
+构建 Release APK 时，UCrop（image_cropper 底层）的 okhttp 依赖触发 R8 混淆警告，导致构建失败。
+
+**错误日志示例**：
+```
+ERROR: R8: Missing class: okhttp3.**
+ERROR: R8: Missing class: okio.**
+```
 
 **解决方案**：
 
-```bash
-# 配置国内镜像后重试
-export PUB_HOSTED_URL="https://mirrors.tuna.tsinghua.edu.cn/dart-pub"
-export FLUTTER_STORAGE_BASE_URL="https://mirrors.tuna.tsinghua.edu.cn/flutter"
-flutter pub get
+在 `android/app/proguard-rules.pro` 中添加以下规则：
+
+```proguard
+# 忽略 UCrop 依赖的 okhttp 缺失警告
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn java.nio.file.**
+
+# 保护 UCrop 核心类不被过度混淆
+-keep class com.yalantis.ucrop** { *; }
+-keep class com.yalantis.ucrop.** { *; }
 ```
 
-### 问题 2：找不到设备
+同时确保 `android/app/build.gradle.kts` 中引用了混淆规则文件：
 
-**症状**：`flutter run` 提示 "No devices found"
-
-**解决方案**：
-
-```bash
-# 检查已连接设备
-flutter devices
-
-# 如果列表为空：
-# 1. Android: 确保模拟器已启动或真机已连接并开启 USB 调试
-# 2. iOS: 确保已打开 iOS 模拟器（Mac only）
+```kotlin
+buildTypes {
+    release {
+        signingConfig = signingConfigs.getByName("release")
+        isMinifyEnabled = true
+        isShrinkResources = true
+        proguardFiles(
+            getDefaultProguardFile("proguard-android-optimize.txt"),
+            "proguard-rules.pro"  // 关键：引用自定义规则
+        )
+    }
+}
 ```
 
-### 问题 3：应用启动崩溃
+### 图片裁剪 UCrop 主题配置
 
-**症状**：应用启动后立即闪退
+UCrop Activity 需要在 `AndroidManifest.xml` 中声明主题，避免白屏：
 
-**排查步骤**：
+```xml
+<activity
+    android:name="com.yalantis.ucrop.UCropActivity"
+    android:screenOrientation="portrait"
+    android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+```
+
+---
+
+## 🧩 关键代码模式
+
+### Upsert 操作（插入或更新）
+
+```dart
+Future<void> saveAsset(Asset asset) async {
+  await db.insert(
+    'assets',
+    asset.toMap(),
+    conflictAlgorithm: ConflictAlgorithm.replace, // 存在则替换
+  );
+}
+```
+
+### 批量导入（查重逻辑）
+
+```dart
+Future<(int inserted, int updated)> importAssetsWithUpsert(
+  List<Asset> parsedAssets,
+) async {
+  int insertedCount = 0;
+  int updatedCount = 0;
+
+  for (var importedAsset in parsedAssets) {
+    // 检查是否已存在
+    final existing = await db.query(
+      'assets',
+      where: 'id = ?',
+      whereArgs: [importedAsset.id],
+      limit: 1,
+    );
+
+    if (existing.isNotEmpty) {
+      // 更新现有记录
+      batch.update('assets', importedAsset.toMap(), ...);
+      updatedCount++;
+    } else {
+      // 插入新记录
+      batch.insert('assets', importedAsset.toMap());
+      insertedCount++;
+    }
+  }
+  await batch.commit(noResult: true);
+
+  return (insertedCount, updatedCount);
+}
+```
+
+### SharedPreferences 持久化用户习惯
+
+```dart
+// 保存
+final prefs = await SharedPreferences.getInstance();
+await prefs.setString('home_sort_by', 'purchase_date');
+await prefs.setBool('home_sort_ascending', false);
+
+// 读取
+final sortBy = prefs.getString('home_sort_by') ?? 'created_at';
+final ascending = prefs.getBool('home_sort_ascending') ?? false;
+```
+
+---
+
+## 🎨 UI 架构约定
+
+### 导航栏布局
+
+V2.0 采用**底部悬浮岛导航**，约定如下：
+- **左侧区域**：筛选按钮、刷新按钮
+- **中间/右侧区域**：排序按钮、添加按钮、设置按钮
+- **禁止使用 Drawer 侧边栏**
+
+参考实现：`lib/screens/main_tab_screen.dart`
+
+### 排序优先级
+
+V2.0 排序规则（硬性约定）：
+1. **第一优先级**：`isPinned`（置顶始终排第一）
+2. **第二优先级**：用户选择的排序字段（名称/价格/日期等）
+3. **第三优先级**：升序/降序方向
+
+### 网格卡片设计
+
+- 双列网格，固定比例 `childAspectRatio: 1.2`
+- 卡片内信息层次：状态指示器 > 头像 > 名称 > 日均成本
+- 已卖出资产显示「已卖出」印章（半透明覆盖）
+
+---
+
+## 🚀 开发工作流
 
 ```bash
-# 查看详细错误日志
-flutter run --verbose
-
-# 清理构建缓存
-flutter clean
+# 1. 获取依赖
 flutter pub get
+
+# 2. 运行调试（热重载）
 flutter run
-```
 
-### 问题 4：测试运行失败
+# 3. 代码检查
+flutter analyze
 
-**症状**：`flutter test` 报错
+# 4. 格式化代码
+flutter format lib/
 
-**解决方案**：
+# 5. 构建 Release APK
+flutter build apk --release
 
-```bash
-# 确保项目已正确初始化
-flutter pub get
-
-# 运行测试（单文件）
-flutter test test/widget_test.dart
-```
-
-### 问题 5：数据库访问错误
-
-**症状**：运行时提示数据库无法打开或表不存在
-
-**解决方案**：
-
-```bash
-# 清除应用数据后重新运行
-flutter run --uninstall
-
-# 或者手动删除数据库文件（以 macOS 为例）
-rm ~/Library/Application\ Support/<bundle_id>/daily_price.db
+# 6. 构建 AppBundle（Google Play）
+flutter build appbundle --release
 ```
 
 ---
 
-## 📚 进阶资源
+## 📋 代码规范
 
-### 官方文档
+### 命名规范
 
-- [Flutter 官方文档](https://docs.flutter.dev/)
-- [Flutter 中文文档](https://flutter.cn/)
-- [sqflite 插件文档](https://pub.dev/packages/sqflite)
-- [SQLite 官方文档](https://www.sqlite.org/docs.html)
-- [Dart 语言指南](https://dart.dev/guides)
+| 类型 | 规范 | 示例 |
+|------|------|------|
+| 对人可见 | 中文 | 注释、文档、UI 文案 |
+| 对机器可见 | 英文 | 变量、函数、类名 |
 
-### 推荐 VS Code 扩展
+### Null Safety
 
-- **Flutter** - Flutter 官方扩展
-- **Dart** - Dart 语言支持
-- **Awesome Flutter Snippets** - 代码片段
-- **Flutter Tree** - 查看 Widget 树
-- **Error Lens** - 实时错误提示
-- **SQLite Viewer** - 在 VS Code 中查看 SQLite 数据库
+```dart
+// ✅ 正确：先判空再使用
+if (soldDate != null) {
+  return DateTime.fromMillisecondsSinceEpoch(soldDate!);
+}
 
-### 数据库管理工具
+// ✅ 正确：使用 ?? 提供默认值
+final price = purchasePrice ?? 0.0;
 
-- [DB Browser for SQLite](https://sqlitebrowser.org/) - 免费开源的 SQLite 浏览器
-- [TablePlus](https://tableplus.com/) - 现代化数据库管理工具
-- [DBeaver](https://dbeaver.io/) - 免费的多数据库管理工具
+// ❌ 错误：直接解包可能为 null 的值
+return DateTime.fromMillisecondsSinceEpoch(soldDate); // 可能崩溃
+```
+
+### 字符串判空
+
+```dart
+// ✅ 正确顺序：先判 null，再判 empty
+if (value != null && value.isNotEmpty) { ... }
+
+// ❌ 错误：可能 NullPointerException
+if (value.isNotEmpty) { ... }
+```
 
 ---
 
-<div align="center">
+## 🔮 未来扩展建议
 
-**祝开发愉快！如有问题，欢迎在项目中提交 Issue 讨论 🎉**
+1. **数据同步**：接入云同步（Firebase / Supabase），支持多端同步
+2. **分类管理**：支持自定义分类图标和颜色
+3. **图表统计**：在 Analysis 页增加折线图、饼图
+4. **标签云**：支持标签搜索和智能推荐
+5. **数据导出增强**：支持 Excel、PDF 导出
 
-</div>
+---
+
+> 📝 **文档维护**：本文档应与代码同步更新。任何涉及新增/删除文件、模块重组、数据库迁移的操作，完成后请更新本文档。

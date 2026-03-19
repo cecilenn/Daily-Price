@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
 
-/// 本地数据库服务类 - 单例模式
+/// 本地数据库服务类 V2.0 - 单例模式
 /// 负责管理 sqflite 数据库实例和提供 CRUD 操作
 class LocalDbService {
   // 单例模式
@@ -32,35 +32,47 @@ class LocalDbService {
     // 打开数据库并创建表
     _db = await openDatabase(
       path,
-      version: 1,
-      onCreate: (Database db, int version) async {
-        await db.execute('''
-          CREATE TABLE assets(
-            id TEXT PRIMARY KEY,
-            userId TEXT,
-            assetName TEXT NOT NULL,
-            purchasePrice REAL NOT NULL,
-            expectedLifespanDays INTEGER NOT NULL,
-            purchaseDate INTEGER NOT NULL,
-            isPinned INTEGER DEFAULT 0,
-            isSold INTEGER DEFAULT 0,
-            soldPrice REAL,
-            soldDate INTEGER,
-            category TEXT DEFAULT 'physical',
-            expireDate INTEGER,
-            renewalHistoryJson TEXT DEFAULT '[]',
-            tags TEXT DEFAULT '[]',
-            createdAt INTEGER NOT NULL
-          )
-        ''');
-      },
+      version: 2,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  /// 数据库创建回调
+  Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE assets(
+        id TEXT PRIMARY KEY,
+        asset_name TEXT NOT NULL,
+        purchase_price REAL,
+        purchase_date INTEGER NOT NULL,
+        is_pinned INTEGER DEFAULT 0,
+        category TEXT DEFAULT 'physical',
+        tags TEXT DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        status INTEGER DEFAULT 0,
+        expected_lifespan_days INTEGER,
+        expire_date INTEGER,
+        sold_price REAL,
+        sold_date INTEGER,
+        avatar_path TEXT,
+        exclude_from_total INTEGER DEFAULT 0,
+        exclude_from_daily INTEGER DEFAULT 0
+      )
+    ''');
+  }
+
+  /// 数据库升级回调
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // V2.0: 删除旧表并重建，解决历史遗留字段约束问题
+    await db.execute('DROP TABLE IF EXISTS assets');
+    await _onCreate(db, newVersion);
   }
 
   /// 获取所有资产
   Future<List<Asset>> getAllAssets() async {
     final List<Map<String, dynamic>> maps = await db.query('assets');
-    print('========== [LocalDb] 查库完成，获取到资产总数: ${maps.length} ==========');
+    print('========== [LocalDb] 查库完成，获取到资产总数：${maps.length} ==========');
     return maps.map((map) => Asset.fromMap(map)).toList();
   }
 
@@ -222,7 +234,7 @@ class LocalDbService {
     // 这里可以添加云端同步逻辑
     // 当前仅作为接口保留
     print(
-      '========== [LocalDb] 同步带标签 "$tag" 的资产: ${assetsToSync.length} 条 ==========',
+      '========== [LocalDb] 同步带标签 "$tag" 的资产：${assetsToSync.length} 条 ==========',
     );
   }
 
