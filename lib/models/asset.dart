@@ -1,14 +1,9 @@
 import 'dart:convert';
-
-import 'package:isar/isar.dart';
 import 'package:intl/intl.dart';
-
-part 'asset.g.dart';
 
 /// 资产模型 - 用于记录个人资产折旧与价值平摊
 /// 数据库字段对应：
-/// - isarId: Isar 本地自增主键（64位整数）
-/// - id: UUID（用于与远端服务器映射同步）
+/// - id: UUID（主键）
 /// - user_id: 用户 ID（关联 auth.users）
 /// - asset_name: 资产名称
 /// - purchase_price: 购入价格
@@ -23,14 +18,9 @@ part 'asset.g.dart';
 /// - renewal_history: 续费历史记录
 /// - tags: 自定义标签
 /// - created_at: 创建时间
-@collection
 class Asset {
-  /// Isar 本地自增主键（64位整数）
-  Id isarId = Isar.autoIncrement;
-
   /// UUID 主键（用于与远端服务器如 PocketBase 进行映射同步）
-  @Index()
-  String? id;
+  String id;
 
   /// 用户 ID，用于多用户数据隔离
   String? userId;
@@ -75,8 +65,7 @@ class Asset {
   DateTime createdAt;
 
   Asset({
-    this.isarId = Isar.autoIncrement,
-    this.id,
+    required this.id,
     this.userId,
     required this.assetName,
     required this.purchasePrice,
@@ -95,7 +84,6 @@ class Asset {
 
   /// 创建 Asset 的便捷工厂方法（自动设置创建时间）
   factory Asset.create({
-    Id? isarId,
     String? id,
     String? userId,
     required String assetName,
@@ -113,8 +101,7 @@ class Asset {
     DateTime? createdAt,
   }) {
     return Asset(
-      isarId: isarId ?? Isar.autoIncrement,
-      id: id,
+      id: id ?? '',
       userId: userId,
       assetName: assetName,
       purchasePrice: purchasePrice,
@@ -133,12 +120,9 @@ class Asset {
   }
 
   /// 解码续费历史记录
-  /// 使用 @ignore 注解告诉 Isar 忽略此 getter/setter
-  @ignore
   List<dynamic> get renewalHistory => _decodeRenewalHistory(renewalHistoryJson);
 
   /// 设置续费历史记录
-  @ignore
   set renewalHistory(List<dynamic> value) {
     renewalHistoryJson = _encodeRenewalHistory(value);
   }
@@ -226,21 +210,92 @@ class Asset {
     return soldPrice! - (purchasePrice - depreciatedValue);
   }
 
+  // ==================== SQLite 映射方法 ====================
+
+  /// 转换为 Map（用于 SQLite 插入/更新）
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'userId': userId,
+      'assetName': assetName,
+      'purchasePrice': purchasePrice,
+      'expectedLifespanDays': expectedLifespanDays,
+      'purchaseDate': purchaseDate.millisecondsSinceEpoch,
+      'isPinned': isPinned ? 1 : 0,
+      'isSold': isSold ? 1 : 0,
+      'soldPrice': soldPrice,
+      'soldDate': soldDate?.millisecondsSinceEpoch,
+      'category': category,
+      'expireDate': expireDate?.millisecondsSinceEpoch,
+      'renewalHistoryJson': renewalHistoryJson,
+      'tags': jsonEncode(tags),
+      'createdAt': createdAt.millisecondsSinceEpoch,
+    };
+  }
+
+  /// 从 Map 创建 Asset 对象（用于 SQLite 查询结果）
+  factory Asset.fromMap(Map<String, dynamic> map) {
+    return Asset(
+      id: map['id'] as String,
+      userId: map['userId'] as String?,
+      assetName: map['assetName'] as String,
+      purchasePrice: (map['purchasePrice'] as num).toDouble(),
+      expectedLifespanDays: map['expectedLifespanDays'] as int,
+      purchaseDate: DateTime.fromMillisecondsSinceEpoch(
+        map['purchaseDate'] as int,
+      ),
+      isPinned: (map['isPinned'] as int) == 1,
+      isSold: (map['isSold'] as int) == 1,
+      soldPrice: map['soldPrice'] != null
+          ? (map['soldPrice'] as num).toDouble()
+          : null,
+      soldDate: map['soldDate'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['soldDate'] as int)
+          : null,
+      category: (map['category'] as String?) ?? 'physical',
+      expireDate: map['expireDate'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['expireDate'] as int)
+          : null,
+      renewalHistory: [],
+      tags: _decodeTags(map['tags']),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int),
+    )..renewalHistoryJson = map['renewalHistoryJson'] as String? ?? '[]';
+  }
+
+  /// 解码标签 JSON 字符串
+  static List<String> _decodeTags(dynamic tagsValue) {
+    if (tagsValue == null) return [];
+    if (tagsValue is List) return tagsValue.map((e) => e.toString()).toList();
+    if (tagsValue is String) {
+      try {
+        final decoded = jsonDecode(tagsValue);
+        if (decoded is List) {
+          return decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  // ==================== JSON 序列化方法（用于网络传输）====================
+
   /// 转换为 JSON（用于数据库插入/更新）
   Map<String, dynamic> toJson() {
     return {
-      if (id != null) 'id': id,
-      if (userId != null) 'user_id': userId,
+      'id': id,
+      'user_id': userId,
       'asset_name': assetName,
       'purchase_price': purchasePrice,
       'expected_lifespan_days': expectedLifespanDays,
       'purchase_date': purchaseDate.toIso8601String(),
       'is_pinned': isPinned,
       'is_sold': isSold,
-      if (soldPrice != null) 'sold_price': soldPrice,
-      if (soldDate != null) 'sold_date': soldDate!.toIso8601String(),
+      'sold_price': soldPrice,
+      'sold_date': soldDate?.toIso8601String(),
       'category': category,
-      if (expireDate != null) 'expire_date': expireDate!.toIso8601String(),
+      'expire_date': expireDate?.toIso8601String(),
       'renewal_history': renewalHistory,
       'tags': tags,
       'created_at': createdAt.toIso8601String(),
@@ -250,7 +305,7 @@ class Asset {
   /// 从 JSON 创建 Asset 对象（用于数据库查询结果）
   factory Asset.fromJson(Map<String, dynamic> json) {
     return Asset(
-      id: json['id'] as String?,
+      id: json['id'] as String,
       userId: json['user_id'] as String?,
       assetName: json['asset_name'] as String,
       purchasePrice: (json['purchase_price'] as num).toDouble(),
@@ -258,19 +313,26 @@ class Asset {
       purchaseDate: _parseDate(json['purchase_date']),
       isPinned: (json['is_pinned'] as bool?) ?? false,
       isSold: (json['is_sold'] as bool?) ?? false,
-      soldPrice: json['sold_price'] != null ? (json['sold_price'] as num).toDouble() : null,
-      soldDate: json['sold_date'] != null ? _parseDate(json['sold_date']) : null,
+      soldPrice: json['sold_price'] != null
+          ? (json['sold_price'] as num).toDouble()
+          : null,
+      soldDate: json['sold_date'] != null
+          ? _parseDate(json['sold_date'])
+          : null,
       category: (json['category'] as String?) ?? 'physical',
-      expireDate: json['expire_date'] != null ? _parseDate(json['expire_date']) : null,
+      expireDate: json['expire_date'] != null
+          ? _parseDate(json['expire_date'])
+          : null,
       renewalHistory: json['renewal_history'] as List<dynamic>? ?? [],
-      tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      tags:
+          (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+          [],
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
 
   /// 复制并修改
   Asset copyWith({
-    Id? isarId,
     String? id,
     String? userId,
     String? assetName,
@@ -287,7 +349,6 @@ class Asset {
     List<String>? tags,
   }) {
     return Asset(
-      isarId: isarId ?? this.isarId,
       id: id ?? this.id,
       userId: userId ?? this.userId,
       assetName: assetName ?? this.assetName,
@@ -308,7 +369,7 @@ class Asset {
 
   @override
   String toString() {
-    return 'Asset(isarId: $isarId, id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory, tags: $tags)';
+    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, expectedLifespanDays: $expectedLifespanDays, purchaseDate: $purchaseDate, isPinned: $isPinned, isSold: $isSold, soldPrice: $soldPrice, soldDate: $soldDate, category: $category, expireDate: $expireDate, renewalHistory: $renewalHistory, tags: $tags)';
   }
 
   /// 解析预计使用天数，支持自然语言
@@ -321,16 +382,16 @@ class Asset {
   /// - "1年6个月10天" 或 "1 年 6 个月 10 天"
   static int parseExpectedDays(String input) {
     if (input.isEmpty) return 0;
-    
+
     final trimmed = input.trim();
-    
+
     // 尝试纯数字（天数）- 允许前后有空白
     final pureNumberPattern = RegExp(r'^\s*(\d+)\s*$');
     final pureMatch = pureNumberPattern.firstMatch(trimmed);
     if (pureMatch != null) {
       return int.parse(pureMatch.group(1)!);
     }
-    
+
     // 使用正则表达式精确提取数字，支持空格可选
     // 年：匹配 "数字 + 可选空格 + 年"
     final yearPattern = RegExp(r'(\d+)\s*年');
@@ -338,34 +399,34 @@ class Asset {
     final monthPattern = RegExp(r'(\d+)\s*(?:个\s*)?月');
     // 天：匹配 "数字 + 可选空格 + 天"
     final dayPattern = RegExp(r'(\d+)\s*天');
-    
+
     final yearMatch = yearPattern.firstMatch(trimmed);
     final monthMatch = monthPattern.firstMatch(trimmed);
     final dayMatch = dayPattern.firstMatch(trimmed);
-    
+
     int totalDays = 0;
     bool hasMatch = false;
-    
+
     if (yearMatch != null) {
       totalDays += int.parse(yearMatch.group(1)!) * 365;
       hasMatch = true;
     }
-    
+
     if (monthMatch != null) {
       totalDays += int.parse(monthMatch.group(1)!) * 30;
       hasMatch = true;
     }
-    
+
     if (dayMatch != null) {
       totalDays += int.parse(dayMatch.group(1)!);
       hasMatch = true;
     }
-    
+
     // 如果没有匹配到任何有效格式，返回 0
     if (!hasMatch) {
       return 0;
     }
-    
+
     return totalDays;
   }
 
@@ -378,15 +439,17 @@ class Asset {
   /// - "2026-01-01 12:30:00"
   static DateTime? parseCustomDate(String input) {
     if (input.isEmpty) return null;
-    
+
     final trimmed = input.trim();
-    
+
     // 预处理：将中文日期格式转换为标准格式
     // 例如："2026年2月2日" -> "2026-2-2"
     String normalized = trimmed;
-    
+
     // 检查是否包含中文日期字符
-    if (normalized.contains('年') || normalized.contains('月') || normalized.contains('日')) {
+    if (normalized.contains('年') ||
+        normalized.contains('月') ||
+        normalized.contains('日')) {
       // 移除所有空白字符
       normalized = normalized.replaceAll(RegExp(r'\s+'), '');
       // 将 '年' 和 '月' 替换为 '-'
@@ -397,7 +460,7 @@ class Asset {
       // 移除末尾可能的多余 '-'
       normalized = normalized.replaceAll(RegExp(r'-+$'), '');
     }
-    
+
     // 尝试解析短横线格式 "2026-2-2" 或 "2026-01-01"
     final dashPattern = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$');
     final dashMatch = dashPattern.firstMatch(normalized);
@@ -411,7 +474,7 @@ class Asset {
         return null;
       }
     }
-    
+
     // 尝试解析点分隔格式 "2025.2.3"
     final dotPattern = RegExp(r'^(\d{4})\.(\d{1,2})\.(\d{1,2})$');
     final dotMatch = dotPattern.firstMatch(trimmed);
@@ -425,7 +488,7 @@ class Asset {
         return null;
       }
     }
-    
+
     // 尝试解析斜杠格式 "2026/01/01"
     final slashPattern = RegExp(r'^(\d{4})/(\d{1,2})/(\d{1,2})$');
     final slashMatch = slashPattern.firstMatch(trimmed);
@@ -439,7 +502,7 @@ class Asset {
         return null;
       }
     }
-    
+
     // 尝试标准 DateTime 解析
     try {
       return DateTime.parse(trimmed);
@@ -452,9 +515,9 @@ class Asset {
   static DateTime _parseDate(dynamic dateValue) {
     if (dateValue is DateTime) return dateValue;
     if (dateValue == null) return DateTime.now();
-    
+
     final dateString = dateValue.toString().trim();
-    
+
     // 尝试多种日期格式
     final formats = [
       'yyyy-MM-dd',
@@ -468,7 +531,7 @@ class Asset {
       'yyyy.MM.dd',
       'yyyy 年 M 月 d 日',
     ];
-    
+
     for (final format in formats) {
       try {
         return DateFormat(format).parse(dateString);
@@ -476,7 +539,7 @@ class Asset {
         continue;
       }
     }
-    
+
     // 如果所有格式都失败，尝试直接解析
     try {
       return DateTime.parse(dateString);
@@ -499,7 +562,7 @@ class DateParser {
     // 直接调用 Asset.parseCustomDate，保持逻辑一致
     return Asset.parseCustomDate(input);
   }
-  
+
   /// 解析预计使用时长，支持自然语言
   /// 支持格式：
   /// - 纯数字：默认为天数
@@ -510,16 +573,16 @@ class DateParser {
   /// - "1年6个月10天" 或 "1 年 6 个月 10 天"
   static int? parseLifespan(String input) {
     if (input.isEmpty) return null;
-    
+
     final trimmed = input.trim();
-    
+
     // 尝试纯数字（天数）- 允许前后有空白
     final pureNumberPattern = RegExp(r'^\s*(\d+)\s*$');
     final pureMatch = pureNumberPattern.firstMatch(trimmed);
     if (pureMatch != null) {
       return int.parse(pureMatch.group(1)!);
     }
-    
+
     // 使用正则表达式精确提取数字，支持空格可选
     // 年：匹配 "数字 + 可选空格 + 年"
     final yearPattern = RegExp(r'(\d+)\s*年');
@@ -527,59 +590,59 @@ class DateParser {
     final monthPattern = RegExp(r'(\d+)\s*(?:个\s*)?月');
     // 天：匹配 "数字 + 可选空格 + 天"
     final dayPattern = RegExp(r'(\d+)\s*天');
-    
+
     final yearMatch = yearPattern.firstMatch(trimmed);
     final monthMatch = monthPattern.firstMatch(trimmed);
     final dayMatch = dayPattern.firstMatch(trimmed);
-    
+
     int totalDays = 0;
     bool hasMatch = false;
-    
+
     if (yearMatch != null) {
       totalDays += int.parse(yearMatch.group(1)!) * 365;
       hasMatch = true;
     }
-    
+
     if (monthMatch != null) {
       totalDays += int.parse(monthMatch.group(1)!) * 30;
       hasMatch = true;
     }
-    
+
     if (dayMatch != null) {
       totalDays += int.parse(dayMatch.group(1)!);
       hasMatch = true;
     }
-    
+
     // 如果没有匹配到任何有效格式，返回 null
     if (!hasMatch) {
       return null;
     }
-    
+
     return totalDays;
   }
-  
+
   /// 格式化日期显示
   static String formatDate(DateTime date, {String format = 'yyyy-MM-dd'}) {
     return DateFormat(format).format(date);
   }
-  
+
   /// 格式化天数显示
   static String formatDays(int days, {String style = 'combined'}) {
     if (style == 'days') {
       return '$days 天';
     }
-    
+
     // 组合格式：年/月/日
     final years = days ~/ 365;
     final remainingAfterYears = days % 365;
     final months = remainingAfterYears ~/ 30;
     final remainingDays = remainingAfterYears % 30;
-    
+
     final parts = <String>[];
     if (years > 0) parts.add('$years 年');
     if (months > 0) parts.add('$months 月');
     if (remainingDays > 0) parts.add('$remainingDays 天');
-    
+
     if (parts.isEmpty) return '0 天';
     return parts.join('');
   }

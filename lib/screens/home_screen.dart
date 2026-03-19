@@ -18,17 +18,17 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Asset> _assets = [];
   bool _isLoading = true;
   String? _errorMessage;
-  
+
   // 当前分栏
   String _currentCategory = 'pinned';
-  
+
   // 排序状态
   String _sortBy = 'created_at';
   bool _sortAscending = false;
-  
+
   // 自定义分栏列表
   List<String> _customTabs = [];
-  
+
   // SharedPreferences 键名
   static const String _prefKeyCategory = 'home_current_category';
   static const String _prefKeySortBy = 'home_sort_by';
@@ -41,7 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initData();
   }
-  
+
   /// 初始化数据：确保顺序加载，先加载偏好设置再加载资产
   Future<void> _initData() async {
     // 1. 首先加载偏好设置（包含默认启动分栏）
@@ -51,20 +51,20 @@ class _HomeScreenState extends State<HomeScreen> {
     // 3. 最后加载资产数据
     await _loadAssets();
   }
-  
+
   /// 从 SharedPreferences 加载用户偏好设置
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     // 优先读取用户上次选择的分栏，如果没有则使用默认启动分栏
     final savedCategory = prefs.getString(_prefKeyCategory);
     final defaultStartupCategory = prefs.getString(_defaultStartupCategoryKey);
-    
+
     // 如果有保存的分栏选择，使用保存的；否则使用默认启动分栏；最后才使用 'pinned'
     final category = savedCategory ?? defaultStartupCategory ?? 'pinned';
     final sortBy = prefs.getString(_prefKeySortBy) ?? 'created_at';
     final sortAscending = prefs.getBool(_prefKeySortAscending) ?? false;
-    
+
     if (mounted) {
       setState(() {
         _currentCategory = category;
@@ -72,10 +72,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _sortAscending = sortAscending;
       });
     }
-    
-    debugPrint('[HomeScreen] 加载偏好设置: category=$category, sortBy=$sortBy, sortAscending=$sortAscending');
+
+    debugPrint(
+      '[HomeScreen] 加载偏好设置：category=$category, sortBy=$sortBy, sortAscending=$sortAscending',
+    );
   }
-  
+
   /// 保存当前分栏设置
   Future<void> _saveCategory(String category) async {
     final prefs = await SharedPreferences.getInstance();
@@ -84,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _currentCategory = category;
     });
   }
-  
+
   /// 保存排序设置
   Future<void> _saveSortSettings(String sortBy, bool ascending) async {
     final prefs = await SharedPreferences.getInstance();
@@ -95,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _sortAscending = ascending;
     });
   }
-  
+
   /// 加载自定义分栏列表
   Future<void> _loadCustomTabs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -116,13 +118,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // 从本地数据库获取所有资产
       final assets = await LocalDbService().getAllAssets();
-      
+
       if (mounted) {
         setState(() {
           _assets = assets;
           _isLoading = false;
         });
-        
+
         // 更新同步时间（使用最新资产的创建时间）
         if (assets.isNotEmpty) {
           assets.sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -140,10 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('加载数据失败：$e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('加载数据失败：$e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -155,9 +154,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // 更新置顶状态并保存到本地数据库
       final updatedAsset = asset.copyWith(isPinned: !asset.isPinned);
       await LocalDbService().saveAsset(updatedAsset);
-      
+
       await _loadAssets(isRefresh: true);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -169,10 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('操作失败：$e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('操作失败：$e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -202,10 +198,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed == true) {
       try {
         // 从本地数据库删除资产
-        await LocalDbService().deleteAsset(asset.isarId);
-        
+        await LocalDbService().deleteAsset(asset.id);
+
         await _loadAssets(isRefresh: true);
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -217,10 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('删除失败：$e'),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text('删除失败：$e'), backgroundColor: Colors.red),
           );
         }
       }
@@ -237,14 +230,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final appProvider = context.watch<AppProvider>();
     return DateParser.formatDays(
       days,
-      style: appProvider.dateFormatStyle == DateFormatStyle.days ? 'days' : 'combined',
+      style: appProvider.dateFormatStyle == DateFormatStyle.days
+          ? 'days'
+          : 'combined',
     );
   }
-  
+
   /// 获取过滤后的资产列表
   List<Asset> get _filteredAssets {
     List<Asset> filtered;
-    
+
     if (_currentCategory == 'all') {
       // 全部：展示所有资产
       filtered = List.from(_assets);
@@ -253,11 +248,13 @@ class _HomeScreenState extends State<HomeScreen> {
     } else if (_currentCategory.startsWith('custom_')) {
       // 自定义分栏：根据 tags 过滤
       // 注意：tags 中存储的是 'custom_xxx' 格式，与 _currentCategory 格式一致
-      filtered = _assets.where((a) => a.tags.contains(_currentCategory)).toList();
+      filtered = _assets
+          .where((a) => a.tags.contains(_currentCategory))
+          .toList();
     } else {
       filtered = _assets.where((a) => a.category == _currentCategory).toList();
     }
-    
+
     filtered.sort((a, b) {
       int result;
       switch (_sortBy) {
@@ -276,10 +273,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return _sortAscending ? result : -result;
     });
-    
+
     return filtered;
   }
-  
+
   /// 获取分栏显示名称
   String _getCategoryLabel(String value) {
     switch (value) {
@@ -299,7 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return '全部';
     }
   }
-  
+
   /// 获取排序字段显示名称
   String _getSortByLabel(String value) {
     switch (value) {
@@ -318,7 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final filteredAssets = _filteredAssets;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -342,28 +339,33 @@ class _HomeScreenState extends State<HomeScreen> {
                   const PopupMenuItem(value: 'pinned', child: Text('置顶')),
                   const PopupMenuItem(value: 'physical', child: Text('实体资产')),
                   const PopupMenuItem(value: 'virtual', child: Text('虚拟资产')),
-                  const PopupMenuItem(value: 'subscription', child: Text('限时资产')),
+                  const PopupMenuItem(
+                    value: 'subscription',
+                    child: Text('限时资产'),
+                  ),
                 ];
                 // 动态添加自定义分栏
                 if (_customTabs.isNotEmpty) {
                   items.add(const PopupMenuDivider());
                   for (final tab in _customTabs) {
-                    items.add(PopupMenuItem(
-                      value: 'custom_$tab',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.label_outline, size: 18),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              tab,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                    items.add(
+                      PopupMenuItem(
+                        value: 'custom_$tab',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.label_outline, size: 18),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                tab,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ));
+                    );
                   }
                 }
                 return items;
@@ -385,7 +387,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   value: 'created_at',
                   child: Row(
                     children: [
-                      if (_sortBy == 'created_at') const Icon(Icons.check, size: 18),
+                      if (_sortBy == 'created_at')
+                        const Icon(Icons.check, size: 18),
                       const SizedBox(width: 8),
                       const Text('添加日期'),
                     ],
@@ -405,7 +408,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   value: 'purchase_date',
                   child: Row(
                     children: [
-                      if (_sortBy == 'purchase_date') const Icon(Icons.check, size: 18),
+                      if (_sortBy == 'purchase_date')
+                        const Icon(Icons.check, size: 18),
                       const SizedBox(width: 8),
                       const Text('购买日期'),
                     ],
@@ -426,7 +430,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   value: 'toggle_order',
                   child: Row(
                     children: [
-                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 18),
+                      Icon(
+                        _sortAscending
+                            ? Icons.arrow_upward
+                            : Icons.arrow_downward,
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Text(_sortAscending ? '升序' : '降序'),
                     ],
@@ -481,7 +490,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       Text(
                         '共 ${filteredAssets.length} 项',
-                        style: const TextStyle(color: Colors.grey, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -501,9 +513,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.all(24),
                         child: Column(
                           children: [
-                            Icon(Icons.error_outline, size: 40, color: Colors.red.shade300),
+                            Icon(
+                              Icons.error_outline,
+                              size: 40,
+                              color: Colors.red.shade300,
+                            ),
                             const SizedBox(height: 10),
-                            Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                            Text(
+                              _errorMessage!,
+                              style: const TextStyle(color: Colors.red),
+                            ),
                             const SizedBox(height: 10),
                             ElevatedButton.icon(
                               onPressed: _loadAssets,
@@ -521,16 +540,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.all(24),
                         child: Column(
                           children: [
-                            Icon(Icons.inbox_outlined, size: 40, color: Colors.grey.shade300),
+                            Icon(
+                              Icons.inbox_outlined,
+                              size: 40,
+                              color: Colors.grey.shade300,
+                            ),
                             const SizedBox(height: 10),
                             Text(
                               _assets.isEmpty ? '暂无资产数据' : '当前分栏暂无资产',
-                              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 14,
+                              ),
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              _assets.isEmpty ? '点击右上角 + 添加您的第一个资产' : '切换其他分栏查看或添加新资产',
-                              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                              _assets.isEmpty
+                                  ? '点击右上角 + 添加您的第一个资产'
+                                  : '切换其他分栏查看或添加新资产',
+                              style: TextStyle(
+                                color: Colors.grey.shade400,
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),
@@ -570,7 +601,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (asset.isPinned)
                             Padding(
                               padding: const EdgeInsets.only(right: 6),
-                              child: Icon(Icons.push_pin, size: 14, color: Colors.orange.shade700),
+                              child: Icon(
+                                Icons.push_pin,
+                                size: 14,
+                                color: Colors.orange.shade700,
+                              ),
                             ),
                           Flexible(
                             child: Text(
@@ -578,7 +613,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                decoration: asset.isSold ? TextDecoration.lineThrough : null,
+                                decoration: asset.isSold
+                                    ? TextDecoration.lineThrough
+                                    : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -618,7 +655,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           value: 'pin',
                           child: Row(
                             children: [
-                              Icon(asset.isPinned ? Icons.push_pin_outlined : Icons.push_pin, size: 18),
+                              Icon(
+                                asset.isPinned
+                                    ? Icons.push_pin_outlined
+                                    : Icons.push_pin,
+                                size: 18,
+                              ),
                               const SizedBox(width: 8),
                               Text(asset.isPinned ? '取消置顶' : '置顶'),
                             ],
@@ -691,10 +733,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       Expanded(
                         child: _buildInfoItem(
-                          icon: asset.soldProfitOrLoss >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
+                          icon: asset.soldProfitOrLoss >= 0
+                              ? Icons.arrow_upward
+                              : Icons.arrow_downward,
                           label: '盈亏',
                           value: _formatCurrency(asset.soldProfitOrLoss.abs()),
-                          valueColor: asset.soldProfitOrLoss >= 0 ? Colors.green : Colors.red,
+                          valueColor: asset.soldProfitOrLoss >= 0
+                              ? Colors.green
+                              : Colors.red,
                         ),
                       ),
                     ],
@@ -715,11 +761,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: _buildInfoItem(
                           icon: Icons.event_busy,
                           label: '到期日期',
-                          value: asset.expireDate != null 
+                          value: asset.expireDate != null
                               ? '${asset.expireDate!.year}-${asset.expireDate!.month.toString().padLeft(2, '0')}-${asset.expireDate!.day.toString().padLeft(2, '0')}'
                               : '未设置',
-                          valueColor: (asset.expireDate != null && asset.expireDate!.isBefore(DateTime.now())) 
-                              ? Colors.red 
+                          valueColor:
+                              (asset.expireDate != null &&
+                                  asset.expireDate!.isBefore(DateTime.now()))
+                              ? Colors.red
                               : Colors.orange,
                         ),
                       ),
@@ -741,7 +789,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: Icons.hourglass_empty,
                           label: '剩余天数',
                           value: _formatDays(asset.remainingDays),
-                          valueColor: asset.isExpired ? Colors.red : Colors.orange,
+                          valueColor: asset.isExpired
+                              ? Colors.red
+                              : Colors.orange,
                         ),
                       ),
                     ],
@@ -758,7 +808,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Transform.rotate(
                 angle: -0.3,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.red.shade400, width: 1.5),
                     borderRadius: BorderRadius.circular(4),
@@ -812,24 +865,28 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 显示添加/编辑资产表单
   Future<void> _showAssetForm({Asset? asset}) async {
     final isEditing = asset != null;
-    
+
     // 表单控制器
     final nameController = TextEditingController(text: asset?.assetName ?? '');
-    final priceController = TextEditingController(text: asset?.purchasePrice.toString() ?? '');
-    final expectedDaysController = TextEditingController(text: asset?.expectedLifespanDays.toString() ?? '');
-    
+    final priceController = TextEditingController(
+      text: asset?.purchasePrice.toString() ?? '',
+    );
+    final expectedDaysController = TextEditingController(
+      text: asset?.expectedLifespanDays.toString() ?? '',
+    );
+
     // 日期控制器
     final purchaseDateController = TextEditingController(
-      text: asset != null 
+      text: asset != null
           ? '${asset.purchaseDate.year}-${asset.purchaseDate.month.toString().padLeft(2, '0')}-${asset.purchaseDate.day.toString().padLeft(2, '0')}'
           : '',
     );
     final soldDateController = TextEditingController(
-      text: asset?.soldDate != null 
+      text: asset?.soldDate != null
           ? '${asset!.soldDate!.year}-${asset.soldDate!.month.toString().padLeft(2, '0')}-${asset.soldDate!.day.toString().padLeft(2, '0')}'
           : '',
     );
-    
+
     // 表单状态
     String category = asset?.category ?? 'physical';
     DateTime purchaseDate = asset?.purchaseDate ?? DateTime.now();
@@ -839,9 +896,12 @@ class _HomeScreenState extends State<HomeScreen> {
     DateTime? soldDate = asset?.soldDate;
     DateTime? expireDate = asset?.expireDate;
     List<String> selectedTags = asset?.tags.toList() ?? [];
-    List<Map<String, dynamic>> renewalHistory = 
-        (asset?.renewalHistory as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
-    
+    List<Map<String, dynamic>> renewalHistory =
+        (asset?.renewalHistory as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        [];
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -882,16 +942,31 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // 资产类型选择器（编辑模式下不可修改）
                   if (!isEditing) ...[
-                    const Text('资产类型', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const Text(
+                      '资产类型',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
                     const SizedBox(height: 8),
                     SegmentedButton<String>(
                       segments: const [
-                        ButtonSegment(value: 'physical', label: Text('实体'), icon: Icon(Icons.inventory_2)),
-                        ButtonSegment(value: 'virtual', label: Text('虚拟'), icon: Icon(Icons.cloud)),
-                        ButtonSegment(value: 'subscription', label: Text('限时'), icon: Icon(Icons.timer)),
+                        ButtonSegment(
+                          value: 'physical',
+                          label: Text('实体'),
+                          icon: Icon(Icons.inventory_2),
+                        ),
+                        ButtonSegment(
+                          value: 'virtual',
+                          label: Text('虚拟'),
+                          icon: Icon(Icons.cloud),
+                        ),
+                        ButtonSegment(
+                          value: 'subscription',
+                          label: Text('限时'),
+                          icon: Icon(Icons.timer),
+                        ),
                       ],
                       selected: {category},
                       onSelectionChanged: (Set<String> selection) {
@@ -908,7 +983,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  
+
                   // 资产名称
                   TextFormField(
                     controller: nameController,
@@ -920,7 +995,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // 购入价格
                   TextFormField(
                     controller: priceController,
@@ -931,10 +1006,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       prefixText: '¥ ',
                       border: OutlineInputBorder(),
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // 预计使用时长
                   TextFormField(
                     controller: expectedDaysController,
@@ -946,7 +1023,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // 购买日期
                   TextFormField(
                     controller: purchaseDateController,
@@ -965,10 +1042,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // 标签选择器（仅当有自定义分栏时显示）
                   if (_customTabs.isNotEmpty) ...[
-                    const Text('自定义标签', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const Text(
+                      '自定义标签',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -993,14 +1073,16 @@ class _HomeScreenState extends State<HomeScreen> {
                               }
                             });
                           },
-                          selectedColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                          selectedColor: Theme.of(
+                            context,
+                          ).primaryColor.withOpacity(0.2),
                           checkmarkColor: Theme.of(context).primaryColor,
                         );
                       }).toList(),
                     ),
                     const SizedBox(height: 16),
                   ],
-                  
+
                   // 是否置顶（所有资产类型都可置顶）
                   SwitchListTile(
                     title: const Text('是否置顶'),
@@ -1011,7 +1093,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  
+
                   // 实体/虚拟资产特有字段
                   if (category != 'subscription') ...[
                     // 是否已出售（编辑模式下显示）
@@ -1024,7 +1106,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                       const SizedBox(height: 8),
-                      
+
                       // 已出售的额外字段
                       if (isSold) ...[
                         TextFormField(
@@ -1035,13 +1117,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             prefixText: '¥ ',
                             border: OutlineInputBorder(),
                           ),
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           onChanged: (value) {
                             soldPrice = double.tryParse(value);
                           },
                         ),
                         const SizedBox(height: 12),
-                        
+
                         TextFormField(
                           controller: soldDateController,
                           decoration: const InputDecoration(
@@ -1062,7 +1146,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ],
                   ],
-                  
+
                   // 限时资产特有字段
                   if (category == 'subscription') ...[
                     // 到期日期自动计算提示
@@ -1075,21 +1159,28 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue.shade700,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               expireDate != null
                                   ? '到期日期将自动计算：${expireDate!.year}-${expireDate!.month.toString().padLeft(2, '0')}-${expireDate!.day.toString().padLeft(2, '0')}'
                                   : '到期日期将根据购买日期和使用时长自动计算',
-                              style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
+                              style: TextStyle(
+                                color: Colors.blue.shade700,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     // 续费记录
                     Card(
                       margin: EdgeInsets.zero,
@@ -1101,13 +1192,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('续费记录', style: TextStyle(fontWeight: FontWeight.w500)),
+                                const Text(
+                                  '续费记录',
+                                  style: TextStyle(fontWeight: FontWeight.w500),
+                                ),
                                 TextButton.icon(
                                   icon: const Icon(Icons.add, size: 18),
                                   label: const Text('新增'),
                                   onPressed: () => _showAddRenewalDialog(
-                                    context, 
-                                    renewalHistory, 
+                                    context,
+                                    renewalHistory,
                                     expireDate,
                                     (newHistory, newExpireDate) {
                                       setModalState(() {
@@ -1122,32 +1216,42 @@ class _HomeScreenState extends State<HomeScreen> {
                             if (renewalHistory.isEmpty)
                               const Padding(
                                 padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text('暂无续费记录', style: TextStyle(color: Colors.grey)),
+                                child: Text(
+                                  '暂无续费记录',
+                                  style: TextStyle(color: Colors.grey),
+                                ),
                               )
                             else
-                              ...renewalHistory.map((record) => ListTile(
-                                dense: true,
-                                leading: const Icon(Icons.replay, size: 20),
-                                title: Text('¥${record['price']?.toString() ?? '0'}'),
-                                subtitle: Text(
-                                  '${record['date'] ?? ''} · +${record['days'] ?? 0} 天',
+                              ...renewalHistory.map(
+                                (record) => ListTile(
+                                  dense: true,
+                                  leading: const Icon(Icons.replay, size: 20),
+                                  title: Text(
+                                    '¥${record['price']?.toString() ?? '0'}',
+                                  ),
+                                  subtitle: Text(
+                                    '${record['date'] ?? ''} · +${record['days'] ?? 0} 天',
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      size: 18,
+                                    ),
+                                    onPressed: () {
+                                      setModalState(() {
+                                        renewalHistory.remove(record);
+                                      });
+                                    },
+                                  ),
                                 ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 18),
-                                  onPressed: () {
-                                    setModalState(() {
-                                      renewalHistory.remove(record);
-                                    });
-                                  },
-                                ),
-                              )),
+                              ),
                           ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
                   ],
-                  
+
                   // 保存按钮
                   SizedBox(
                     width: double.infinity,
@@ -1157,38 +1261,50 @@ class _HomeScreenState extends State<HomeScreen> {
                         // 验证输入
                         if (nameController.text.trim().isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('请输入资产名称'), backgroundColor: Colors.red),
+                            const SnackBar(
+                              content: Text('请输入资产名称'),
+                              backgroundColor: Colors.red,
+                            ),
                           );
                           return;
                         }
                         final price = double.tryParse(priceController.text);
                         if (price == null || price <= 0) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('请输入有效的购入价格'), backgroundColor: Colors.red),
+                            const SnackBar(
+                              content: Text('请输入有效的购入价格'),
+                              backgroundColor: Colors.red,
+                            ),
                           );
                           return;
                         }
-                        final days = Asset.parseExpectedDays(expectedDaysController.text);
+                        final days = Asset.parseExpectedDays(
+                          expectedDaysController.text,
+                        );
                         if (days <= 0) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('请输入有效的预计使用时长'), backgroundColor: Colors.red),
+                            const SnackBar(
+                              content: Text('请输入有效的预计使用时长'),
+                              backgroundColor: Colors.red,
+                            ),
                           );
                           return;
                         }
-                        
+
                         Navigator.pop(context);
-                        
+
                         // 保存数据到本地数据库
                         try {
                           // 计算限时资产的到期日期
                           DateTime? calculatedExpireDate = expireDate;
                           if (category == 'subscription') {
-                            calculatedExpireDate = purchaseDate.add(Duration(days: days));
+                            calculatedExpireDate = purchaseDate.add(
+                              Duration(days: days),
+                            );
                           }
-                          
+
                           // 构建资产对象
                           final newAsset = Asset.create(
-                            isarId: isEditing ? asset!.isarId : null,
                             id: isEditing ? asset!.id : null,
                             assetName: nameController.text.trim(),
                             purchasePrice: price,
@@ -1203,12 +1319,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             renewalHistory: renewalHistory,
                             tags: selectedTags,
                           );
-                          
+
                           // 保存到本地数据库
                           await LocalDbService().saveAsset(newAsset);
-                          
+
                           await _loadAssets(isRefresh: true);
-                          
+
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -1220,7 +1336,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('保存失败：$e'), backgroundColor: Colors.red),
+                              SnackBar(
+                                content: Text('保存失败：$e'),
+                                backgroundColor: Colors.red,
+                              ),
                             );
                           }
                         }
@@ -1244,8 +1363,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-  
-    /// 显示添加续费记录对话框
+
+  /// 显示添加续费记录对话框
   void _showAddRenewalDialog(
     BuildContext context,
     List<Map<String, dynamic>> currentHistory,
@@ -1256,7 +1375,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final daysController = TextEditingController();
     final dateController = TextEditingController();
     DateTime renewalDate = DateTime.now();
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1271,7 +1390,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 prefixText: '¥ ',
                 border: OutlineInputBorder(),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1287,7 +1408,7 @@ class _HomeScreenState extends State<HomeScreen> {
               controller: dateController,
               decoration: const InputDecoration(
                 labelText: '付费日期',
-                hintText: '例如：2026-01-01、2026年1月1日',
+                hintText: '例如：2026-01-01、2026 年 1 月 1 日',
                 border: OutlineInputBorder(),
               ),
               onChanged: (value) {
@@ -1308,38 +1429,46 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               final price = double.tryParse(priceController.text);
               final days = Asset.parseExpectedDays(daysController.text);
-              
+
               if (price == null || price <= 0) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('请输入有效的金额'), backgroundColor: Colors.red),
+                  const SnackBar(
+                    content: Text('请输入有效的金额'),
+                    backgroundColor: Colors.red,
+                  ),
                 );
                 return;
               }
               if (days <= 0) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('请输入有效的续费时长'), backgroundColor: Colors.red),
+                  const SnackBar(
+                    content: Text('请输入有效的续费时长'),
+                    backgroundColor: Colors.red,
+                  ),
                 );
                 return;
               }
-              
+
               final newRecord = {
-                'date': '${renewalDate.year}-${renewalDate.month.toString().padLeft(2, '0')}-${renewalDate.day.toString().padLeft(2, '0')}',
+                'date':
+                    '${renewalDate.year}-${renewalDate.month.toString().padLeft(2, '0')}-${renewalDate.day.toString().padLeft(2, '0')}',
                 'price': price,
                 'days': days,
               };
-              
+
               // 计算新的到期日期：基于当前到期日期（或购买日期）+ 续费时长
               DateTime newExpireDate;
-              if (currentExpireDate != null && currentExpireDate.isAfter(DateTime.now())) {
+              if (currentExpireDate != null &&
+                  currentExpireDate.isAfter(DateTime.now())) {
                 // 如果当前到期日期还未过期，从到期日期开始计算
                 newExpireDate = currentExpireDate.add(Duration(days: days));
               } else {
                 // 否则从续费日期开始计算
                 newExpireDate = renewalDate.add(Duration(days: days));
               }
-              
+
               final newHistory = [...currentHistory, newRecord];
-              
+
               Navigator.pop(context);
               onUpdate(newHistory, newExpireDate);
             },

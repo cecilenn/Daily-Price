@@ -25,15 +25,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isExporting = false;
   bool _isImporting = false;
   bool _importExportLocked = false; // 防抖保护
-  
+
   // 默认启动分栏设置
   String _defaultCategory = 'pinned';
   final String _prefKey = 'default_startup_category';
-  
+
   // 自定义分栏设置
   List<String> _customTabs = [];
   final String _customTabsPrefKey = 'custom_tabs';
-  
+
   // 基础分栏选项（不含自定义分栏）
   final List<Map<String, String>> _baseCategoryOptions = [
     {'value': 'pinned', 'label': '置顶'},
@@ -41,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     {'value': 'virtual', 'label': '虚拟资产'},
     {'value': 'subscription', 'label': '订阅服务'},
   ];
-  
+
   // 获取完整的分栏选项（包含自定义分栏）
   List<Map<String, String>> get _categoryOptions {
     final options = <Map<String, String>>[
@@ -60,7 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadDefaultCategory();
     _loadCustomTabs();
   }
-  
+
   /// 加载默认启动分栏设置
   Future<void> _loadDefaultCategory() async {
     final prefs = await SharedPreferences.getInstance();
@@ -68,7 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _defaultCategory = prefs.getString(_prefKey) ?? 'pinned';
     });
   }
-  
+
   /// 保存默认启动分栏设置
   Future<void> _saveDefaultCategory(String value) async {
     final prefs = await SharedPreferences.getInstance();
@@ -77,7 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _defaultCategory = value;
     });
   }
-  
+
   /// 加载自定义分栏设置
   Future<void> _loadCustomTabs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -86,7 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _customTabs = tabs;
     });
   }
-  
+
   /// 保存自定义分栏设置
   Future<void> _saveCustomTabs(List<String> tabs) async {
     final prefs = await SharedPreferences.getInstance();
@@ -95,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _customTabs = tabs;
     });
   }
-  
+
   /// 添加自定义分栏
   Future<void> _addCustomTab() async {
     final controller = TextEditingController();
@@ -138,7 +138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-    
+
     if (result != null && result.isNotEmpty) {
       // 检查是否已存在
       if (_customTabs.contains(result)) {
@@ -150,20 +150,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _showSuccess('已添加分栏"$result"');
     }
   }
-  
+
   /// 批量管理资产标签（双向同步：添加/移除）
   /// 支持数据回显：已包含该标签的资产会预先选中
   /// 支持双向同步：根据复选框状态与数据库状态对比，自动增删标签
   Future<void> _batchAddTagToAssets(String tagName) async {
     print('========== [UI] 准备弹窗，开始获取数据 ==========');
-    
+
     final db = LocalDbService();
     final customTagValue = 'custom_$tagName';
-    
+
     // 【第一步：在弹窗前，先获取所有资产并实现初始状态回显】
     final assets = await db.getAllAssets();
     final selectedIds = <String>{};
-    
+
     // 核心回显逻辑：如果资产的 tags 包含当前标签，预先打上对勾
     for (final asset in assets) {
       if (asset.tags.contains(customTagValue)) {
@@ -173,12 +173,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
     }
-    
+
     print('========== [UI] 数据回显完成，已预选 ${selectedIds.length} 个资产 ==========');
 
     // 【第二步：显示资产选择对话框】
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
       builder: (context) {
@@ -199,7 +199,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
                               '勾选添加标签，取消勾选移除标签',
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
                             ),
                           ),
                           // 全选/取消全选按钮
@@ -221,12 +224,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     }
                                   });
                                 },
-                                child: Text(selectedIds.length == assets.length 
-                                    ? '取消全选' : '全选'),
+                                child: Text(
+                                  selectedIds.length == assets.length
+                                      ? '取消全选'
+                                      : '全选',
+                                ),
                               ),
                               const Spacer(),
-                              Text('已选: ${selectedIds.length}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                              Text(
+                                '已选: ${selectedIds.length}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
                             ],
                           ),
                           const Divider(height: 1),
@@ -237,27 +248,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               itemCount: assets.length,
                               itemBuilder: (ctx, i) {
                                 final asset = assets[i];
-                                final String displayName = (asset.assetName == null || asset.assetName!.trim().isEmpty) 
-                                    ? '未命名资产_${asset.id}' 
+                                final String displayName =
+                                    (asset.assetName == null ||
+                                        asset.assetName!.trim().isEmpty)
+                                    ? '未命名资产_${asset.id}'
                                     : asset.assetName!;
-                                
+
                                 return Container(
                                   margin: const EdgeInsets.only(bottom: 8),
                                   color: Colors.grey[200],
                                   child: CheckboxListTile(
                                     title: Text(
                                       displayName,
-                                      style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.bold),
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    value: asset.id != null ? selectedIds.contains(asset.id) : false,
+                                    value: asset.id != null
+                                        ? selectedIds.contains(asset.id)
+                                        : false,
                                     onChanged: (bool? val) {
                                       if (val == null) return;
-                                      
+
                                       final localId = asset.id;
                                       if (localId == null) return;
-                                      
+
                                       setDialogState(() {
                                         if (val) {
                                           selectedIds.add(localId);
@@ -284,18 +303,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             TextButton(
               onPressed: () async {
                 int updateCount = 0;
-                
+
                 // 【第二步：双向同步逻辑 - 遍历所有资产进行比对】
                 for (final asset in assets) {
                   if (asset.id == null) continue;
-                  
+
                   final bool isSelected = selectedIds.contains(asset.id);
                   final bool hasTag = asset.tags.contains(customTagValue);
                   bool changed = false;
-                  
+
                   // 创建标签副本进行修改
                   final updatedTags = List<String>.from(asset.tags);
-                  
+
                   if (isSelected && !hasTag) {
                     // 场景 1：用户勾选了，但原本没有标签 -> 执行新增
                     updatedTags.add(customTagValue);
@@ -305,7 +324,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     updatedTags.remove(customTagValue);
                     changed = true;
                   }
-                  
+
                   // 只有发生变化的资产，才执行底层 Upsert 减少性能损耗
                   if (changed) {
                     final updatedAsset = asset.copyWith(tags: updatedTags);
@@ -313,7 +332,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     updateCount++;
                   }
                 }
-                
+
                 // 收尾：关闭弹窗，显示结果，刷新外层 UI
                 if (mounted) {
                   Navigator.pop(context);
@@ -351,10 +370,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-    
+
     if (confirmed == true) {
       final newTabs = _customTabs.where((t) => t != tab).toList();
-      
+
       // 安全检查：如果被删除的分栏正是当前的默认分栏，重置为 'all'
       final customTabValue = 'custom_$tab';
       if (_defaultCategory == customTabValue) {
@@ -364,30 +383,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _defaultCategory = 'all';
         });
       }
-      
+
       // 保存更新后的分栏配置
       await _saveCustomTabs(newTabs);
-      
+
       // 【级联清洗】：从所有资产中移除该废弃标签
       final db = LocalDbService();
       final allAssets = await db.getAllAssets();
       int cleanCount = 0;
-      
+
       for (final asset in allAssets) {
         if (asset.tags.contains(customTabValue)) {
           // 创建标签副本并移除废弃标签
           final updatedTags = List<String>.from(asset.tags);
           updatedTags.remove(customTabValue);
-          
+
           // 重新写入数据库覆盖
           final updatedAsset = asset.copyWith(tags: updatedTags);
           await db.saveAsset(updatedAsset);
           cleanCount++;
         }
       }
-      
-      print('========== [级联清洗] 已清除 $cleanCount 个资产身上的废弃标签: $customTabValue ==========');
-      
+
+      print(
+        '========== [级联清洗] 已清除 $cleanCount 个资产身上的废弃标签: $customTabValue ==========',
+      );
+
       if (cleanCount > 0) {
         _showSuccess('已删除分栏"$tab"，并从 $cleanCount 个资产中移除该标签');
       } else {
@@ -404,9 +425,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// 解析日期字符串
   DateTime? _parseDateString(String? dateStr) {
     if (dateStr == null || dateStr.trim().isEmpty) return null;
-    
+
     final trimmed = dateStr.trim();
-    
+
     // 尝试多种日期格式
     final formats = [
       'yyyy-MM-dd',
@@ -415,7 +436,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'yyyy年M月d日',
       'yyyy年MM月dd日',
     ];
-    
+
     for (final format in formats) {
       try {
         return DateFormat(format).parse(trimmed);
@@ -423,7 +444,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         continue;
       }
     }
-    
+
     // 尝试标准 DateTime 解析
     try {
       return DateTime.parse(trimmed);
@@ -470,7 +491,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('[导出] 操作被锁定，跳过');
       return;
     }
-    
+
     setState(() {
       _isExporting = true;
       _importExportLocked = true;
@@ -478,11 +499,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       debugPrint('[导出] 开始导出流程...');
-      
+
       // 从本地数据库获取所有资产
       final assets = await LocalDbService().getAllAssets();
       debugPrint('[导出] 获取到 ${assets.length} 条资产');
-      
+
       if (assets.isEmpty) {
         _showError('暂无数据可导出');
         return;
@@ -492,19 +513,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final csvData = <List<dynamic>>[
         // CSV 表头（与 Asset 模型字段严格对应）
         [
-          'id',              // UUID
-          'asset_name',      // 资产名称
-          'purchase_price',  // 购入价格
+          'id', // UUID
+          'asset_name', // 资产名称
+          'purchase_price', // 购入价格
           'expected_lifespan_days', // 预计使用天数
-          'purchase_date',   // 购买日期
-          'is_pinned',       // 是否置顶
-          'is_sold',         // 是否已出售
-          'sold_price',      // 出售价格
-          'sold_date',       // 出售日期
-          'category',        // 资产分类
-          'expire_date',     // 过期日期
-          'tags',            // 标签（分号分隔）
-          'created_at',      // 创建时间
+          'purchase_date', // 购买日期
+          'is_pinned', // 是否置顶
+          'is_sold', // 是否已出售
+          'sold_price', // 出售价格
+          'sold_date', // 出售日期
+          'category', // 资产分类
+          'expire_date', // 过期日期
+          'tags', // 标签（分号分隔）
+          'created_at', // 创建时间
         ],
       ];
 
@@ -551,7 +572,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else if (Platform.isAndroid) {
         // Android 平台：尝试使用 file_picker saveFile
         debugPrint('[导出] Android 平台，尝试 saveFile');
-        
+
         try {
           // 先写入临时文件
           final tempDir = await getTemporaryDirectory();
@@ -568,13 +589,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             allowedExtensions: ['csv'],
             bytes: Uint8List.fromList(utf8.encode(csvString)),
           );
-          
+
           // 用户点击取消，直接返回
           if (savePath == null) {
             debugPrint('[导出] 用户取消保存');
             return;
           }
-          
+
           if (savePath.isNotEmpty) {
             debugPrint('[导出] saveFile 返回路径: $savePath');
             _showSuccess('已保存到: $savePath');
@@ -598,7 +619,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         // iOS / macOS / Windows / Linux：使用 file_picker saveFile
         debugPrint('[导出] 桌面端平台，使用 saveFile');
-        
+
         try {
           final savePath = await FilePicker.platform.saveFile(
             dialogTitle: '保存 CSV 文件',
@@ -607,13 +628,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             allowedExtensions: ['csv'],
             bytes: Uint8List.fromList(utf8.encode(csvString)),
           );
-          
+
           // 用户点击取消，直接返回
           if (savePath == null) {
             debugPrint('[导出] 用户取消保存');
             return;
           }
-          
+
           if (savePath.isNotEmpty) {
             debugPrint('[导出] 文件已保存到: $savePath');
             _showSuccess('已保存到: $savePath');
@@ -626,7 +647,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _showError('保存失败: ${e.toString()}');
         }
       }
-      
+
       debugPrint('[导出] 导出流程完成');
     } catch (e, stackTrace) {
       debugPrint('[导出] 发生错误: $e');
@@ -643,13 +664,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// Android 备选导出方案：尝试直接写入 Download 目录
-  Future<void> _exportToAndroidDownload(String csvString, String fileName) async {
+  Future<void> _exportToAndroidDownload(
+    String csvString,
+    String fileName,
+  ) async {
     try {
       debugPrint('[导出] 尝试写入 Download 目录');
-      
+
       // 尝试写入 Android 公共 Download 目录
       final downloadDir = Directory('/storage/emulated/0/Download');
-      
+
       if (await downloadDir.exists()) {
         final filePath = '${downloadDir.path}/$fileName';
         final file = File(filePath);
@@ -680,7 +704,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('[导入] 操作被锁定，跳过');
       return;
     }
-    
+
     setState(() {
       _isImporting = true;
       _importExportLocked = true;
@@ -688,7 +712,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       debugPrint('[导入] 开始导入流程...');
-      
+
       // 选择 CSV 文件
       final result = await FilePicker.platform.pickFiles(
         dialogTitle: '选择 CSV 文件',
@@ -722,31 +746,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
         csvString = await File(file.path!).readAsString();
       }
-      
+
       debugPrint('[导入] CSV 字符串长度: ${csvString.length}');
 
       // 解析 CSV
       final csvRows = const CsvToListConverter().convert(csvString);
       debugPrint('[导入] 解析到 ${csvRows.length} 行（含表头）');
-      
+
       if (csvRows.length < 2) {
         _showError('CSV 文件为空或格式不正确（仅有 ${csvRows.length} 行）');
         return;
       }
 
       // 获取表头，建立字段索引映射
-      final header = csvRows[0].map((e) => e.toString().trim().toLowerCase()).toList();
+      final header = csvRows[0]
+          .map((e) => e.toString().trim().toLowerCase())
+          .toList();
       debugPrint('[导入] 表头: $header');
-      
+
       final Map<String, int> fieldIndex = {};
       for (int i = 0; i < header.length; i++) {
         fieldIndex[header[i]] = i;
       }
 
       // 验证必要字段：资产名称（支持 asset_name 或 name）
-      final hasAssetName = fieldIndex.containsKey('asset_name') || 
-                           fieldIndex.containsKey('name') ||
-                           fieldIndex.containsKey('title');
+      final hasAssetName =
+          fieldIndex.containsKey('asset_name') ||
+          fieldIndex.containsKey('name') ||
+          fieldIndex.containsKey('title');
       if (!hasAssetName) {
         _showError('CSV 缺少必要字段: asset_name 或 name 或 title\n当前表头: $header');
         return;
@@ -770,8 +797,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final idx = fieldIndex[fieldName.toLowerCase()];
               if (idx != null && idx < row.length) {
                 final val = row[idx];
-                return (val == null || val.toString().trim().isEmpty) 
-                    ? null 
+                return (val == null || val.toString().trim().isEmpty)
+                    ? null
                     : val.toString().trim();
               }
             }
@@ -788,26 +815,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // 解析其他字段
           final id = getRowValue(['id', 'uuid']);
-          
+
           final purchasePriceStr = getRowValue(['purchase_price', 'price']);
-          final purchasePrice = purchasePriceStr != null 
-              ? double.tryParse(purchasePriceStr) ?? 0.0 
+          final purchasePrice = purchasePriceStr != null
+              ? double.tryParse(purchasePriceStr) ?? 0.0
               : 0.0;
 
-          final lifespanStr = getRowValue(['expected_lifespan_days', 'lifespan_days', 'lifespan']);
-          final expectedLifespanDays = lifespanStr != null 
-              ? int.tryParse(lifespanStr) ?? 365 
+          final lifespanStr = getRowValue([
+            'expected_lifespan_days',
+            'lifespan_days',
+            'lifespan',
+          ]);
+          final expectedLifespanDays = lifespanStr != null
+              ? int.tryParse(lifespanStr) ?? 365
               : 365;
 
-          final purchaseDateStr = getRowValue(['purchase_date', 'buy_date', 'date']);
-          final purchaseDate = _parseDateString(purchaseDateStr) ?? DateTime.now();
+          final purchaseDateStr = getRowValue([
+            'purchase_date',
+            'buy_date',
+            'date',
+          ]);
+          final purchaseDate =
+              _parseDateString(purchaseDateStr) ?? DateTime.now();
 
-          final isPinned = getRowValue(['is_pinned', 'pinned'])?.toLowerCase() == 'true';
-          final isSold = getRowValue(['is_sold', 'sold'])?.toLowerCase() == 'true';
+          final isPinned =
+              getRowValue(['is_pinned', 'pinned'])?.toLowerCase() == 'true';
+          final isSold =
+              getRowValue(['is_sold', 'sold'])?.toLowerCase() == 'true';
 
           final soldPriceStr = getRowValue(['sold_price', 'sell_price']);
-          final soldPrice = soldPriceStr != null 
-              ? double.tryParse(soldPriceStr) 
+          final soldPrice = soldPriceStr != null
+              ? double.tryParse(soldPriceStr)
               : null;
 
           final soldDateStr = getRowValue(['sold_date', 'sell_date']);
@@ -820,14 +858,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           final tagsStr = getRowValue(['tags', 'tag']);
           final tags = tagsStr != null && tagsStr.isNotEmpty
-              ? tagsStr.split(';').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+              ? tagsStr
+                    .split(';')
+                    .map((e) => e.trim())
+                    .where((e) => e.isNotEmpty)
+                    .toList()
               : <String>[];
 
-          final createdAtStr = getRowValue(['created_at', 'created_date', 'created']);
+          final createdAtStr = getRowValue([
+            'created_at',
+            'created_date',
+            'created',
+          ]);
           final createdAt = _parseDateString(createdAtStr) ?? DateTime.now();
 
           final asset = Asset(
-            id: id,
+            id: id ?? '',
             assetName: assetName,
             purchasePrice: purchasePrice,
             expectedLifespanDays: expectedLifespanDays,
@@ -849,7 +895,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           continue;
         }
       }
-      
+
       debugPrint('[导入] 解析完成：${assetsToImport.length} 条有效，$skippedRows 条跳过');
 
       if (assetsToImport.isEmpty) {
@@ -859,8 +905,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       // 调用 LocalDbService 的 upsert 方法进行导入
       // 该方法会严格按照 UUID 查重，存在则继承 isarId 覆盖更新
-      final (insertedCount, updatedCount) = await LocalDbService().importAssetsWithUpsert(assetsToImport);
-      
+      final (insertedCount, updatedCount) = await LocalDbService()
+          .importAssetsWithUpsert(assetsToImport);
+
       debugPrint('[导入] 导入完成：新增 $insertedCount 条，更新 $updatedCount 条');
 
       // 刷新 UI
@@ -887,10 +934,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('设置'), centerTitle: true),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 600),
@@ -898,17 +942,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               // 外观分区
               _buildSectionHeader('外观'),
-              
+
               // 主题切换
               Consumer<AppProvider>(
                 builder: (context, appProvider, child) {
                   return ListTile(
                     leading: Icon(
-                      appProvider.theme == AppTheme.light 
-                          ? Icons.light_mode 
-                          : appProvider.theme == AppTheme.dark 
-                              ? Icons.dark_mode 
-                              : Icons.eco,
+                      appProvider.theme == AppTheme.light
+                          ? Icons.light_mode
+                          : appProvider.theme == AppTheme.dark
+                          ? Icons.dark_mode
+                          : Icons.eco,
                     ),
                     title: const Text('主题风格'),
                     subtitle: Text(_getThemeName(appProvider.theme)),
@@ -918,27 +962,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
               const Divider(height: 1),
-              
+
               // 默认启动分栏
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     // 恢复正常的标题样式
                     const Text(
                       '默认启动分栏',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     // 右侧的优雅下拉框
                     Container(
                       width: 160,
                       padding: const EdgeInsets.symmetric(horizontal: 12.0),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant, // 适配暗色模式的微底色
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceVariant, // 适配暗色模式的微底色
                         borderRadius: BorderRadius.circular(8.0), // 圆角设计更现代
                       ),
-                      child: DropdownButtonHideUnderline( // 去掉丑陋的底部下划线
+                      child: DropdownButtonHideUnderline(
+                        // 去掉丑陋的底部下划线
                         child: DropdownButton<String>(
                           isExpanded: true,
                           value: _defaultCategory,
@@ -966,64 +1019,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const Divider(height: 1),
-              
+
               const SizedBox(height: 16),
-              
+
               // 自定义分栏管理分区
               _buildSectionHeader('自定义分栏'),
-              
+
               // 自定义分栏列表
               if (_customTabs.isEmpty)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Text(
                     '暂无自定义分栏，点击下方按钮添加',
                     style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                   ),
                 )
               else
-                ..._customTabs.map((tab) => ListTile(
-                  contentPadding: const EdgeInsets.only(left: 16.0, right: 8.0), // 右侧内边距缩减
-                  leading: const Icon(Icons.label_outline),
-                  title: Padding(
-                    padding: const EdgeInsets.only(left: 16.0), // 标签名向右平移
-                    child: Text(
-                      tab,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                ..._customTabs.map(
+                  (tab) => ListTile(
+                    contentPadding: const EdgeInsets.only(
+                      left: 16.0,
+                      right: 8.0,
+                    ), // 右侧内边距缩减
+                    leading: const Icon(Icons.label_outline),
+                    title: Padding(
+                      padding: const EdgeInsets.only(left: 16.0), // 标签名向右平移
+                      child: Text(
+                        tab,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // 添加标签按钮
+                        IconButton(
+                          icon: const Icon(
+                            Icons.sell_outlined,
+                            color: Colors.blue,
+                          ),
+                          tooltip: '批量添加标签',
+                          onPressed: () => _batchAddTagToAssets(tab),
+                        ),
+                        // 删除按钮
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
+                          onPressed: () => _removeCustomTab(tab),
+                        ),
+                      ],
                     ),
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 添加标签按钮
-                      IconButton(
-                        icon: const Icon(Icons.sell_outlined, color: Colors.blue),
-                        tooltip: '批量添加标签',
-                        onPressed: () => _batchAddTagToAssets(tab),
-                      ),
-                      // 删除按钮
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
-                        onPressed: () => _removeCustomTab(tab),
-                      ),
-                    ],
-                  ),
-                )),
-              
+                ),
+
               // 添加自定义分栏按钮
               ListTile(
                 leading: const Icon(Icons.add, color: Colors.green),
-                title: const Text('添加自定义分栏', style: TextStyle(color: Colors.green)),
+                title: const Text(
+                  '添加自定义分栏',
+                  style: TextStyle(color: Colors.green),
+                ),
                 onTap: _addCustomTab,
               ),
               const Divider(height: 1),
-              
+
               const SizedBox(height: 16),
-              
+
               // 数据管理分区
               _buildSectionHeader('数据管理'),
-              
+
               // 导出数据
               ListTile(
                 leading: const Icon(Icons.upload_file),
@@ -1039,7 +1109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: _isExporting ? null : _exportToCSV,
               ),
               const Divider(height: 1),
-              
+
               // 导入数据
               ListTile(
                 leading: const Icon(Icons.download),
@@ -1055,12 +1125,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: _isImporting ? null : _importFromCSV,
               ),
               const Divider(height: 1),
-              
+
               const SizedBox(height: 16),
-              
+
               // 账户分区
               _buildSectionHeader('账户'),
-              
+
               // 退出登录
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
@@ -1079,12 +1149,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         TextButton(
                           onPressed: () => Navigator.pop(context, true),
-                          child: const Text('退出', style: TextStyle(color: Colors.red)),
+                          child: const Text(
+                            '退出',
+                            style: TextStyle(color: Colors.red),
+                          ),
                         ),
                       ],
                     ),
                   );
-                  
+
                   if (confirmed == true) {
                     if (mounted) {
                       Navigator.of(context).pop();
@@ -1092,29 +1165,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }
                 },
               ),
-              
+
               const SizedBox(height: 32),
-              
+
               // 关于分区
               _buildSectionHeader('关于'),
-              
+
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('版本'),
                 subtitle: const Text('1.0.0'),
               ),
-              
+
               const SizedBox(height: 48),
-              
+
               // 底部提示
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
                   '提示：导入数据时，所有资产将关联到当前登录账户。',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -1136,7 +1206,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return '复古护眼';
     }
   }
-  
+
   /// 获取分栏显示名称
   String _getCategoryLabel(String value) {
     for (final option in _categoryOptions) {
@@ -1194,7 +1264,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String description,
   ) {
     final isSelected = appProvider.theme == theme;
-    
+
     return ListTile(
       leading: Icon(icon),
       title: Text(name),
