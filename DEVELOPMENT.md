@@ -66,22 +66,17 @@ flutter pub get
 > flutter pub get
 > ```
 
-### 第三步：生成 Isar 数据库代码（重要！）
-
-本项目使用 Isar 作为本地数据库，需要先生成代码：
+### 第三步：验证项目结构
 
 ```bash
-# 运行代码生成器
-flutter pub run build_runner build --delete-conflicting-outputs
+# 查看项目文件结构
+ls -la
+
+# 检查关键文件是否存在
+ls lib/models/ lib/services/
 ```
 
-> ⚠️ **注意**：
-> - 这个命令会生成 `lib/models/asset.g.dart` 文件，**每次修改 `asset.dart` 后都需要重新运行**
-> - 如果出现错误，可以尝试先清理再重新生成：
->   ```bash
->   flutter pub run build_runner clean
->   flutter pub run build_runner build --delete-conflicting-outputs
->   ```
+> ⚠️ **注意**：迁移到 sqflite 后，**不再需要运行 `build_runner`**！项目启动更加简单。
 
 ---
 
@@ -125,7 +120,7 @@ open -a Simulator
 #### Android 真机
 
 1. **开启开发者模式**：
-   - 进入手机设置 → 关于手机 → 连续点击"版本号"7次
+   - 进入手机设置 → 关于手机 → 连续点击"版本号"7 次
    - 返回设置 → 开发者选项 → 开启"USB 调试"
 
 2. **连接电脑**：
@@ -227,9 +222,9 @@ void main() {
     });
     
     test('should parse expected days from natural language', () {
-      expect(Asset.parseExpectedDays('1年'), 365);
-      expect(Asset.parseExpectedDays('6个月'), 180);
-      expect(Asset.parseExpectedDays('1年6个月'), 365 + 180);
+      expect(Asset.parseExpectedDays('1 年'), 365);
+      expect(Asset.parseExpectedDays('6 个月'), 180);
+      expect(Asset.parseExpectedDays('1 年 6 个月'), 365 + 180);
     });
   });
 }
@@ -244,7 +239,7 @@ void main() {
 | 功能模块 | 测试步骤 | 预期结果 |
 |----------|----------|----------|
 | **添加资产** | 点击"添加" → 填写名称、价格、天数 → 点击保存 | 资产出现在列表中 |
-| **资产计算** | 添加一个价格为 3650 元、100 天的资产 | 日均成本显示为 36.5 元 |
+| **资产计算** | 添加一个价格为 3650 元、100 天的资产 | 日均成本显示为 36.5 元/天 |
 | **标签筛选** | 为资产添加标签 → 点击标签进行筛选 | 只显示对应标签的资产 |
 | **置顶功能** | 点击资产卡片上的置顶按钮 | 资产移动到列表顶部 |
 | **编辑资产** | 点击资产卡片 → 修改信息 → 保存 | 信息更新成功 |
@@ -262,16 +257,18 @@ void main() {
 2. **添加测试数据**：
    - 资产名称："MacBook Pro"
    - 购入价格：14999
-   - 预计使用天数：1460（或输入"4年"）
+   - 预计使用天数：1460（或输入"4 年"）
    - 点击保存
 
 3. **验证计算结果**：
    - 日均成本应显示：约 10.27 元/天
    - 剩余价值应根据使用天数动态计算
 
-### 调试指南
+---
 
-#### 使用 VS Code 调试（推荐）
+## 🔧 调试指南
+
+### 使用 VS Code 调试（推荐）
 
 **配置步骤：**
 
@@ -292,7 +289,7 @@ void main() {
 | `F11` | 单步进入 |
 | `Shift + F11` | 单步跳出 |
 
-#### 使用 Dart DevTools
+### 使用 Dart DevTools
 
 ```bash
 # 在运行应用时启动 DevTools
@@ -310,14 +307,14 @@ DevTools 提供以下功能：
 - 🧠 **Memory** - 内存监控
 - 🌐 **Network** - 网络请求监控
 
-#### 常用调试技巧
+### 常用调试技巧
 
 **1. 打印日志调试**
 
 ```dart
 // 在代码中使用 print 输出调试信息
-print('资产名称: ${asset.assetName}');
-print('日均成本: ${asset.dailyCost}');
+print('资产名称：${asset.assetName}');
+print('日均成本：${asset.dailyCost}');
 ```
 
 在 VS Code 的 DEBUG CONSOLE 中查看输出。
@@ -331,20 +328,98 @@ R  # 热重启（重新启动应用）
 q  # 退出应用
 ```
 
-**3. 检查 Isar 数据库内容**
+**3. 检查 SQLite 数据库内容**
 
-项目在开发模式已启用 Isar Inspector：
+可以使用以下工具查看 SQLite 数据库：
 
-```dart
-// lib/services/local_db_service.dart 中
-_isar = await Isar.open(
-  [AssetSchema],
-  directory: dir.path,
-  inspector: true,  // ← 开发环境启用检查器
+```bash
+# macOS/Linux: 使用 sqlite3 命令行
+sqlite3 ~/Library/Application\ Support/com.example.dailyPrice/daily_price.db
+
+# 查看表结构
+.schema assets
+
+# 查询数据
+SELECT * FROM assets;
+```
+
+或者使用 GUI 工具：
+- [DB Browser for SQLite](https://sqlitebrowser.org/)（免费开源）
+- [TablePlus](https://tableplus.com/)（付费，有免费版）
+
+---
+
+## 🗄️ 数据库架构说明
+
+### 数据库文件位置
+
+不同平台的数据库文件存储位置：
+
+| 平台 | 路径 |
+|------|------|
+| **Android** | `/data/data/<package_name>/databases/daily_price.db` |
+| **iOS** | `~/Library/Application Support/<bundle_id>/daily_price.db` |
+| **macOS** | `~/Library/Application Support/<bundle_id>/daily_price.db` |
+| **Windows** | `C:\Users\<username>\AppData\Roaming\<bundle_id>\daily_price.db` |
+| **Linux** | `~/.local/share/<bundle_id>/daily_price.db` |
+
+### assets 表结构
+
+```sql
+CREATE TABLE assets(
+  id TEXT PRIMARY KEY,              -- UUID v4 字符串
+  userId TEXT,                      -- 用户 ID（预留）
+  assetName TEXT NOT NULL,          -- 资产名称
+  purchasePrice REAL NOT NULL,      -- 购入价格
+  expectedLifespanDays INTEGER NOT NULL,  -- 预计使用天数
+  purchaseDate INTEGER NOT NULL,    -- 购买日期（Unix 时间戳，毫秒）
+  isPinned INTEGER DEFAULT 0,       -- 是否置顶（0 或 1）
+  isSold INTEGER DEFAULT 0,         -- 是否已出售（0 或 1）
+  soldPrice REAL,                   -- 出售价格
+  soldDate INTEGER,                 -- 出售日期（Unix 时间戳，毫秒）
+  category TEXT DEFAULT 'physical', -- 资产分类
+  expireDate INTEGER,               -- 过期日期（Unix 时间戳，毫秒）
+  renewalHistoryJson TEXT DEFAULT '[]',  -- 续费历史（JSON 字符串）
+  tags TEXT DEFAULT '[]',           -- 标签列表（JSON 字符串）
+  createdAt INTEGER NOT NULL        -- 创建时间（Unix 时间戳，毫秒）
 );
 ```
 
-启动应用后，打开浏览器访问 `http://localhost:22191` 可以查看数据库内容。
+### 索引（可选扩展）
+
+如果未来需要优化查询性能，可以考虑添加以下索引：
+
+```sql
+-- 按创建时间排序查询优化
+CREATE INDEX idx_assets_createdAt ON assets(createdAt);
+
+-- 按分类查询优化
+CREATE INDEX idx_assets_category ON assets(category);
+
+-- 按置顶状态查询优化
+CREATE INDEX idx_assets_isPinned ON assets(isPinned);
+```
+
+### 数据迁移
+
+如果需要修改数据库结构，需要在 `local_db_service.dart` 的 `init()` 方法中处理版本迁移：
+
+```dart
+_db = await openDatabase(
+  path,
+  version: 2,  // 每次修改结构时递增版本号
+  onCreate: (Database db, int version) async {
+    // 创建新表
+    await db.execute('CREATE TABLE assets(...)');
+  },
+  onUpgrade: (Database db, int oldVersion, int newVersion) async {
+    // 执行迁移逻辑
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE assets ADD COLUMN newColumn TEXT');
+    }
+  },
+);
+```
 
 ---
 
@@ -363,19 +438,7 @@ export FLUTTER_STORAGE_BASE_URL="https://mirrors.tuna.tsinghua.edu.cn/flutter"
 flutter pub get
 ```
 
-### 问题 2：`build_runner` 生成失败
-
-**症状**：报错找不到 `asset.g.dart` 或生成失败
-
-**解决方案**：
-
-```bash
-# 清理缓存后重新生成
-flutter pub run build_runner clean
-flutter pub run build_runner build --delete-conflicting-outputs
-```
-
-### 问题 3：找不到设备
+### 问题 2：找不到设备
 
 **症状**：`flutter run` 提示 "No devices found"
 
@@ -387,10 +450,10 @@ flutter devices
 
 # 如果列表为空：
 # 1. Android: 确保模拟器已启动或真机已连接并开启 USB 调试
-# 2. iOS: 确保已打开 iOS 模拟器（Mac  only）
+# 2. iOS: 确保已打开 iOS 模拟器（Mac only）
 ```
 
-### 问题 4：应用启动崩溃
+### 问题 3：应用启动崩溃
 
 **症状**：应用启动后立即闪退
 
@@ -403,11 +466,10 @@ flutter run --verbose
 # 清理构建缓存
 flutter clean
 flutter pub get
-flutter pub run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
-### 问题 5：测试运行失败
+### 问题 4：测试运行失败
 
 **症状**：`flutter test` 报错
 
@@ -416,10 +478,23 @@ flutter run
 ```bash
 # 确保项目已正确初始化
 flutter pub get
-flutter pub run build_runner build --delete-conflicting-outputs
 
 # 运行测试（单文件）
 flutter test test/widget_test.dart
+```
+
+### 问题 5：数据库访问错误
+
+**症状**：运行时提示数据库无法打开或表不存在
+
+**解决方案**：
+
+```bash
+# 清除应用数据后重新运行
+flutter run --uninstall
+
+# 或者手动删除数据库文件（以 macOS 为例）
+rm ~/Library/Application\ Support/<bundle_id>/daily_price.db
 ```
 
 ---
@@ -430,7 +505,8 @@ flutter test test/widget_test.dart
 
 - [Flutter 官方文档](https://docs.flutter.dev/)
 - [Flutter 中文文档](https://flutter.cn/)
-- [Isar 数据库文档](https://isar.dev/)
+- [sqflite 插件文档](https://pub.dev/packages/sqflite)
+- [SQLite 官方文档](https://www.sqlite.org/docs.html)
 - [Dart 语言指南](https://dart.dev/guides)
 
 ### 推荐 VS Code 扩展
@@ -440,6 +516,13 @@ flutter test test/widget_test.dart
 - **Awesome Flutter Snippets** - 代码片段
 - **Flutter Tree** - 查看 Widget 树
 - **Error Lens** - 实时错误提示
+- **SQLite Viewer** - 在 VS Code 中查看 SQLite 数据库
+
+### 数据库管理工具
+
+- [DB Browser for SQLite](https://sqlitebrowser.org/) - 免费开源的 SQLite 浏览器
+- [TablePlus](https://tableplus.com/) - 现代化数据库管理工具
+- [DBeaver](https://dbeaver.io/) - 免费的多数据库管理工具
 
 ---
 

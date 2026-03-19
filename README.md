@@ -1,6 +1,6 @@
 # 🏷️ Daily Price - 资产折旧与日常价格追踪
 
-> 一句话介绍：这是一个基于 **Flutter + Isar** 的轻量级本地资产与日常价格追踪应用，帮助您记录资产折旧、计算日均成本，轻松管理您的每一份投资。
+> 一句话介绍：这是一个基于 **Flutter + sqflite** 的轻量级本地资产与日常价格追踪应用，帮助您记录资产折旧、计算日均成本，轻松管理您的每一份投资。
 
 ---
 
@@ -12,12 +12,12 @@
 
 ---
 
-## 🛠 技术栈
+## 🛠️ 技术栈
 
 | 类别 | 技术/插件 | 版本 | 用途 |
 |------|-----------|------|------|
 | 框架 | Flutter | ^3.11.0 | 跨平台 UI 框架 |
-| 数据库 | Isar Database | ^3.1.0+1 | 高性能本地 NoSQL 数据库 |
+| 数据库 | **sqflite** | 最新版 | 标准 SQLite 本地关系型数据库 |
 | 状态管理 | Provider | ^6.1.2 | 应用状态管理 |
 | 本地存储 | shared_preferences | ^2.3.3 | 用户偏好设置持久化 |
 | 日期处理 | intl | ^0.19.0 | 日期格式化与解析 |
@@ -35,8 +35,7 @@
 lib/
 ├── main.dart                    # 应用入口
 ├── models/
-│   ├── asset.dart               # 🏷️ 核心资产数据模型
-│   └── asset.g.dart             # Isar 自动生成的代码
+│   └── asset.dart               # 🏷️ 核心资产数据模型
 ├── providers/
 │   └── app_provider.dart        # 全局状态管理
 ├── screens/
@@ -66,12 +65,11 @@ lib/
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| `isarId` | `Id` (int) | Isar 本地自增主键（64位整数），数据库内部使用 |
-| `id` | `String?` | UUID v4 字符串，用于与远端服务器（如 PocketBase）进行映射同步 |
+| `id` | `String` | UUID v4 字符串，作为 SQLite 主键，用于与远端服务器（如 PocketBase）进行映射同步 |
 | `userId` | `String?` | 用户 ID，预留用于多用户数据隔离 |
 | `assetName` | `String` | **资产名称**（必填） |
 | `purchasePrice` | `double` | **购入价格**（必填） |
-| `expectedLifespanDays` | `int` | **预计使用天数**（必填），支持自然语言解析如"1年6个月" |
+| `expectedLifespanDays` | `int` | **预计使用天数**（必填），支持自然语言解析如"1 年 6 个月" |
 | `purchaseDate` | `DateTime` | **购买日期**（必填），支持多种格式解析 |
 | `isPinned` | `bool` | 是否置顶，默认为 `false` |
 | `isSold` | `bool` | 是否已出售，默认为 `false` |
@@ -79,8 +77,8 @@ lib/
 | `soldDate` | `DateTime?` | 出售日期（可选） |
 | `category` | `String` | 资产分类：`physical`(实体) / `virtual`(虚拟) / `subscription`(订阅)，默认为 `physical` |
 | `expireDate` | `DateTime?` | 过期日期（主要用于订阅类资产） |
-| `renewalHistory` | `List<dynamic>` | 续费历史记录（JSON 存储） |
-| `tags` | `List<String>` | 自定义标签列表，支持多标签筛选 |
+| `renewalHistoryJson` | `String` | 续费历史记录（JSON 字符串存储） |
+| `tags` | `List<String>` | 自定义标签列表，支持多标签筛选（SQLite 中存储为 JSON 字符串） |
 | `createdAt` | `DateTime` | 创建时间 |
 
 ### 计算属性
@@ -93,32 +91,57 @@ lib/
 | `actualUsedDays` | `int` | 实际使用天数（若已出售则计算到出售日期） |
 | `remainingValue` | `double` | 剩余价值 = 日均成本 × 剩余天数 |
 | `depreciatedValue` | `double` | 已折旧金额 = 日均成本 × 实际使用天数 |
-| `isExpired` | `bool` | 是否已过期（剩余天数为0） |
+| `isExpired` | `bool` | 是否已过期（剩余天数为 0） |
 | `actualDailyCost` | `double` | 实际日均花费（考虑出售盈亏） |
 | `soldProfitOrLoss` | `double` | 出售盈亏金额 |
 
 ### 便捷方法
 
 - `Asset.create(...)` - 工厂方法，自动设置创建时间和 UUID
+- `Asset.fromMap(Map)` - 从 Map 创建对象（用于 SQLite 查询结果）
+- `toMap()` - 转换为 Map（用于 SQLite 插入/更新）
+- `toJson() / fromJson()` - 序列化与反序列化（用于网络传输）
 - `copyWith(...)` - 复制并修改字段
-- `toJson() / fromJson()` - 序列化与反序列化
-- `parseExpectedDays(String)` - 解析自然语言时长（如"1年6个月"）
+- `parseExpectedDays(String)` - 解析自然语言时长（如"1 年 6 个月"）
 - `parseCustomDate(String)` - 解析多种日期格式
 
 ---
 
 ## 🔌 核心内部接口 (LocalDbService)
 
-`LocalDbService` 采用**单例模式**管理 Isar 数据库实例，为 UI 层提供简洁的数据操作 API。
+`LocalDbService` 采用**单例模式**管理 SQLite 数据库实例，为 UI 层提供简洁的数据操作 API。
+
+### 数据库架构
+
+数据库文件名：`daily_price.db`
+
+**assets 表结构**：
+
+```sql
+CREATE TABLE assets(
+  id TEXT PRIMARY KEY,
+  userId TEXT,
+  assetName TEXT NOT NULL,
+  purchasePrice REAL NOT NULL,
+  expectedLifespanDays INTEGER NOT NULL,
+  purchaseDate INTEGER NOT NULL,          -- Unix 时间戳（毫秒）
+  isPinned INTEGER DEFAULT 0,             -- 0 或 1
+  isSold INTEGER DEFAULT 0,               -- 0 或 1
+  soldPrice REAL,
+  soldDate INTEGER,                       -- Unix 时间戳（毫秒）
+  category TEXT DEFAULT 'physical',
+  expireDate INTEGER,                     -- Unix 时间戳（毫秒）
+  renewalHistoryJson TEXT DEFAULT '[]',   -- JSON 字符串
+  tags TEXT DEFAULT '[]',                 -- JSON 字符串
+  createdAt INTEGER NOT NULL              -- Unix 时间戳（毫秒）
+)
+```
 
 ### 初始化与生命周期
 
 ```dart
 // 在应用启动时初始化
 await LocalDbService().init();
-
-// 获取 Isar 实例（需在 init 之后）
-final isar = LocalDbService().isar;
 
 // 关闭数据库（应用退出时）
 await LocalDbService().close();
@@ -148,7 +171,7 @@ await LocalDbService().close();
 
 | 方法 | 签名 | 返回值 | 说明 |
 |------|------|--------|------|
-| `deleteAsset` | `Future<void> deleteAsset(int isarId)` | `void` | 通过 Isar 主键删除资产 |
+| `deleteAsset` | `Future<void> deleteAsset(String id)` | `void` | 通过 UUID 主键删除资产 |
 | `deleteAssetByUuid` | `Future<void> deleteAssetByUuid(String uuid)` | `void` | 通过 UUID 删除资产 |
 | `deleteAllAssets` | `Future<void> deleteAllAssets()` | `void` | 清空所有资产（危险操作） |
 
@@ -162,7 +185,7 @@ final db = LocalDbService();
 final newAsset = Asset.create(
   assetName: 'MacBook Pro',
   purchasePrice: 14999.0,
-  expectedLifespanDays: 1460, // 4年
+  expectedLifespanDays: 1460, // 4 年
   purchaseDate: DateTime.now(),
   category: 'physical',
   tags: ['电子产品', '生产力工具'],
@@ -185,7 +208,7 @@ print('导入完成：插入 $inserted 条，更新 $updated 条');
 
 - Flutter SDK: ^3.11.0
 - Dart SDK: ^3.11.0
-- 支持平台: iOS / Android / macOS / Windows / Linux / Web
+- 支持平台：iOS / Android / macOS / Windows / Linux / Web
 
 ### 快速开始
 
@@ -197,22 +220,20 @@ cd daily_price
 # 2. 安装依赖
 flutter pub get
 
-# 3. 生成 Isar 代码（必需！）
-flutter pub run build_runner build --delete-conflicting-outputs
-
-# 4. 运行应用
+# 3. 运行应用
 flutter run
 ```
+
+> ⚠️ **注意**：迁移到 sqflite 后，**不再需要运行 `build_runner`**！
 
 ### 开发调试
 
 ```bash
-# 启用 Isar Inspector（开发模式已默认启用）
-# Inspector 可在浏览器中查看和调试数据库内容
+# 运行应用
+flutter run
 
-# 清理并重新生成代码
-flutter pub run build_runner clean
-flutter pub run build_runner build --delete-conflicting-outputs
+# 启用详细日志
+flutter run --verbose
 
 # 运行测试
 flutter test
@@ -236,12 +257,39 @@ flutter build windows --release
 
 ---
 
+## 🗺️ 数据库迁移说明
+
+### 从 Isar 迁移到 sqflite
+
+本项目已从 Isar 数据库迁移到标准 SQLite（通过 sqflite 插件），主要变更如下：
+
+| 项目 | 迁移前 (Isar) | 迁移后 (sqflite) |
+|------|---------------|------------------|
+| 数据库类型 | NoSQL 文档型 | 关系型 SQL |
+| 主键类型 | `isarId` (int 自增) | `id` (UUID v4 String) |
+| 代码生成 | 需要 `build_runner` | 不需要 |
+| 存储格式 | 二进制 + 索引 | 标准 SQLite 表 |
+| 查询方式 | Isar 查询 API | SQL 查询 |
+
+**兼容性改进**：
+- ✅ 更好的跨平台支持和长期维护性
+- ✅ 标准 SQL 便于数据导出和分析
+- ✅ 移除代码生成步骤，开发流程更简单
+- ✅ 使用 UUID 作为主键，便于与云端同步
+
+**数据结构变更**：
+- `tags` 字段：从 `List<String>` 改为 JSON 字符串存储
+- `renewalHistory` 字段：从 `List<dynamic>` 改为 JSON 字符串存储
+- 所有日期字段：存储为 Unix 时间戳（毫秒）
+
+---
+
 ## 🗺 未来路线图 (Roadmap)
 
 ### ✅ 已实现功能
 
 - [x] 资产 CRUD 操作
-- [x] 本地数据持久化（Isar）
+- [x] 本地数据持久化（sqflite）
 - [x] CSV 导入/导出
 - [x] 资产折旧计算
 - [x] 标签系统与筛选
@@ -296,6 +344,6 @@ chore: 杂项更新
 
 <div align="center">
 
-**Made with ❤️ using Flutter & Isar**
+**Made with ❤️ using Flutter & sqflite**
 
 </div>
