@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
 import '../services/local_db_service.dart';
 import 'asset_detail_screen.dart';
 import 'add_edit_asset_screen.dart';
+import 'scanner_screen.dart';
 
 /// 首页 - 资产列表与管理页面（V2.0 重构版）
 class HomeScreen extends StatefulWidget {
@@ -470,10 +474,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         leadingWidth: 100,
         actions: [
+          // V2.1: 扫码入库按钮
           IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () => _navigateToAddAsset(),
-            tooltip: '添加资产',
+            icon: const Icon(Icons.qr_code_scanner),
+            onPressed: () => _handleScanQRCode(),
+            tooltip: '扫码入库',
           ),
         ],
       ),
@@ -690,7 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -728,14 +733,18 @@ class _HomeScreenState extends State<HomeScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () {
-          // 点击跳转到详情页
-          Navigator.push(
+        onTap: () async {
+          // 点击跳转到详情页并等待返回信号
+          final bool? shouldRefresh = await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => AssetDetailScreen(asset: asset),
             ),
           );
+          // 只要详情页返回了 true（删除、修改或扫码入库），就触发刷新
+          if (shouldRefresh == true && mounted) {
+            await _loadAssets(isRefresh: true);
+          }
         },
         child: Stack(
           children: [
@@ -832,7 +841,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Positioned.fill(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100.withOpacity(0.3),
+                    color: Colors.grey.shade100.withValues(alpha: 0.3),
                   ),
                   child: Center(
                     child: Transform.rotate(
@@ -848,7 +857,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             width: 1.2,
                           ),
                           borderRadius: BorderRadius.circular(4),
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                         ),
                         child: Text(
                           '已卖出',
@@ -914,7 +923,7 @@ class _HomeScreenState extends State<HomeScreen> {
         width: 48,
         height: 48,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Center(
@@ -955,7 +964,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final color = colors[asset.assetName.hashCode % colors.length];
       return CircleAvatar(
         radius: 24,
-        backgroundColor: color.withOpacity(0.1),
+        backgroundColor: color.withValues(alpha: 0.1),
         child: Text(
           firstChar,
           style: TextStyle(
@@ -989,6 +998,159 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (result == true && mounted) {
       await _loadAssets(isRefresh: true);
+    }
+  }
+
+  // ========== V2.1: 扫码入库功能（防抖重构版）==========
+
+  /// 处理扫码按钮点击
+  Future<void> _handleScanQRCode() async {
+    // 检查并申请相机权限
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('需要相机权限才能扫码'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 打开独立扫码页面并获取返回值
+    final result = await Navigator.push<String?>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+
+    // 用户取消或未识别到二维码时，result 为 null
+    if (result == null || !mounted) return;
+
+    // 处理扫码结果（包含异常处理）
+    await _processScannedQRCode(result);
+  }
+
+  /// V2.1: 处理扫描到的二维码数据（终极重构版 - 基于唯一 ID 去重）
+  Future<void> _processScannedQRCode(String qrData) async {
+    try {
+      // 尝试解析 JSON
+      final Map<String, dynamic> jsonData = jsonDecode(qrData);
+
+      // 验证是否为合法的资产二维码（必须包含关键字段）
+      if (jsonData['assetName'] == null && jsonData['asset_name'] == null) {
+        throw FormatException('缺少资产名称字段');
+      }
+
+      // V2.1: 从 JSON 中提取原始 id（去重关键）
+      final String? originalId = jsonData['id'] as String?;
+
+      // 创建扫描资产对象（使用原始 id，确保 avatarPath 为 null）
+      final scannedAsset = Asset(
+        id: originalId ?? const Uuid().v4(), // 优先使用原始 id，否则生成新 UUID
+        assetName:
+            jsonData['assetName'] as String? ??
+            jsonData['asset_name'] as String? ??
+            '未知资产',
+        purchasePrice:
+            (jsonData['purchasePrice'] as num?)?.toDouble() ??
+            (jsonData['purchase_price'] as num?)?.toDouble(),
+        purchaseDate:
+            jsonData['purchaseDate'] as int? ??
+            jsonData['purchase_date'] as int? ??
+            DateTime.now().millisecondsSinceEpoch,
+        expectedLifespanDays:
+            jsonData['expectedLifespanDays'] as int? ??
+            jsonData['expected_lifespan_days'] as int?,
+        status: jsonData['status'] as int? ?? 0, // 保留原始状态
+        category: jsonData['category'] as String? ?? 'physical',
+        tags: jsonData['tags'] is List
+            ? (jsonData['tags'] as List).map((e) => e.toString()).toList()
+            : [],
+        createdAt:
+            jsonData['createdAt'] as int? ??
+            jsonData['created_at'] as int? ??
+            DateTime.now().millisecondsSinceEpoch,
+        isPinned:
+            jsonData['isPinned'] as int? ?? jsonData['is_pinned'] as int? ?? 0,
+        excludeFromTotal:
+            jsonData['excludeFromTotal'] as int? ??
+            jsonData['exclude_from_total'] as int? ??
+            0,
+        excludeFromDaily:
+            jsonData['excludeFromDaily'] as int? ??
+            jsonData['exclude_from_daily'] as int? ??
+            0,
+        soldPrice:
+            (jsonData['soldPrice'] as num?)?.toDouble() ??
+            (jsonData['sold_price'] as num?)?.toDouble(),
+        soldDate: jsonData['soldDate'] as int? ?? jsonData['sold_date'] as int?,
+        avatarPath: null, // 强制设为 null（本地路径在其他设备上无效）
+      );
+
+      // V2.1: 去重引擎 - 按原始 id 查询是否已存在
+      Asset? existingAsset;
+      if (originalId != null && originalId.isNotEmpty) {
+        existingAsset = await LocalDbService().getAssetById(originalId);
+      }
+
+      if (existingAsset != null) {
+        // ========== 分支 A：已存在 ==========
+        if (mounted) {
+          // 弹出提示框
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('资产已存在'),
+              content: Text('「${existingAsset!.assetName}」已在您的库存中。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          );
+
+          // 普通模式跳转到详情页，等待返回信号
+          final bool? shouldRefresh = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AssetDetailScreen(asset: existingAsset!),
+            ),
+          );
+          // 如果详情页返回 true（删除操作），刷新主页列表
+          if (shouldRefresh == true && mounted) {
+            await _loadAssets(isRefresh: true);
+          }
+        }
+      } else {
+        // ========== 分支 B：新发现 ==========
+        // 预览模式跳转（显示「加入我的库存」按钮）
+        final isAdded = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                AssetDetailScreen(asset: scannedAsset, isPreview: true),
+          ),
+        );
+
+        // 如果用户点击了「加入我的库存」，刷新主页列表
+        if (isAdded == true && mounted) {
+          await _loadAssets(isRefresh: true);
+        }
+      }
+    } catch (e) {
+      // 解析失败：显示红色 SnackBar 提示"无法识别的资产二维码"
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('无法识别的资产二维码'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 }

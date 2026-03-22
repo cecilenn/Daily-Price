@@ -49,7 +49,7 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
       text: widget.asset?.expectedLifespanDays?.toString() ?? '',
     );
     purchaseDateController = TextEditingController(
-      text: widget.asset != null && widget.asset!.purchaseDate != null
+      text: widget.asset != null
           ? _formatDateFromTimestamp(widget.asset!.purchaseDate)
           : '',
     );
@@ -240,7 +240,7 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
-                    value: status,
+                    initialValue: status,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(

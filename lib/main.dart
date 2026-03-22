@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/app_provider.dart';
 import 'screens/main_tab_screen.dart';
-import 'screens/login_screen.dart';
 import 'services/local_db_service.dart';
 
 Future<void> main() async {

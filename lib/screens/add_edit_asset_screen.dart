@@ -52,9 +52,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
       text: widget.existingAsset?.expectedLifespanDays?.toString() ?? '',
     );
     purchaseDateController = TextEditingController(
-      text:
-          widget.existingAsset != null &&
-              widget.existingAsset!.purchaseDate != null
+      text: widget.existingAsset != null
           ? _formatDateFromTimestamp(widget.existingAsset!.purchaseDate)
           : '',
     );
@@ -255,7 +253,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                value: status,
+                initialValue: status,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   contentPadding: EdgeInsets.symmetric(
@@ -290,7 +288,9 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  onChanged: (value) => soldPrice = double.tryParse(value),
+                  onChanged: (value) {
+                    soldPrice = double.tryParse(value);
+                  },
                 ),
                 const SizedBox(height: 16),
               ],
@@ -306,8 +306,9 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
                   ),
                   onChanged: (value) {
                     final parsed = Asset.parseCustomDate(value);
-                    if (parsed != null)
+                    if (parsed != null) {
                       soldDate = parsed.millisecondsSinceEpoch;
+                    }
                   },
                 ),
                 const SizedBox(height: 16),

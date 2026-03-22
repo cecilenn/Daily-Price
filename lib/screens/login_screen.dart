@@ -116,11 +116,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-content: Text(message),
-          backgroundColor: Colors.red,
-        ),
-      );
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
   }
 
   @override
@@ -147,7 +144,10 @@ content: Text(message),
                   decoration: const InputDecoration(
                     labelText: '邮箱',
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.emailAddress,
@@ -158,11 +158,15 @@ content: Text(message),
                   decoration: const InputDecoration(
                     labelText: '密码',
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                     border: OutlineInputBorder(),
                   ),
                   obscureText: true,
-                  onFieldSubmitted: (_) => _isRegisterMode ? _signUp() : _signIn(),
+                  onFieldSubmitted: (_) =>
+                      _isRegisterMode ? _signUp() : _signIn(),
                 ),
                 const SizedBox(height: 24),
                 if (_isLoading)

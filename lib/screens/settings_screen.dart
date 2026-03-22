@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:developer';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -357,7 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
 
-      print(
+      log(
         '========== [级联清洗] 已清除 $cleanCount 个资产身上的废弃标签：$customTabValue ==========',
       );
 
@@ -914,7 +916,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       width: 160,
                       padding: const EdgeInsets.symmetric(horizontal: 12.0),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(8.0),
                       ),
                       child: DropdownButtonHideUnderline(

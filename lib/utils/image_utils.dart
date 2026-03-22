@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -53,7 +55,7 @@ class ImageUtils {
       // 保存到应用文档目录
       return await _saveImageToAppDirectory(croppedFile);
     } catch (e) {
-      print('[ImageUtils] 选择裁剪失败：$e');
+      log('[ImageUtils] 选择裁剪失败：$e');
       return null;
     }
   }
@@ -88,7 +90,7 @@ class ImageUtils {
         await file.delete();
       }
     } catch (e) {
-      print('[ImageUtils] 删除图片失败：$e');
+      log('[ImageUtils] 删除图片失败：$e');
     }
   }
 }

@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:developer';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
@@ -72,7 +75,7 @@ class LocalDbService {
   /// 获取所有资产
   Future<List<Asset>> getAllAssets() async {
     final List<Map<String, dynamic>> maps = await db.query('assets');
-    print('========== [LocalDb] 查库完成，获取到资产总数：${maps.length} ==========');
+    log('========== [LocalDb] 查库完成，获取到资产总数：${maps.length} ==========');
     return maps.map((map) => Asset.fromMap(map)).toList();
   }
 
@@ -166,6 +169,31 @@ class LocalDbService {
     await db.delete('assets', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// 删除资产并物理删除关联的文件
+  /// 先根据 ID 查询资产，如果存在 avatarPath 则删除物理文件，最后删除数据库记录
+  Future<void> deleteAssetWithFile(String id) async {
+    // 先查询资产
+    final asset = await getAssetByUuid(id);
+
+    if (asset != null) {
+      // 如果存在头像路径，物理删除文件
+      if (asset.avatarPath != null && asset.avatarPath!.isNotEmpty) {
+        try {
+          final file = File(asset.avatarPath!);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (e) {
+          // 文件删除失败不阻断数据库删除流程，仅打印日志
+          log('========== [LocalDb] 删除文件失败：$e ==========');
+        }
+      }
+    }
+
+    // 删除数据库记录
+    await deleteAsset(id);
+  }
+
   /// 通过 UUID 删除资产（与 deleteAsset 相同，为了保持接口兼容）
   Future<void> deleteAssetByUuid(String uuid) async {
     await deleteAsset(uuid);
@@ -192,6 +220,11 @@ class LocalDbService {
   /// 通过字符串 ID 查找资产（封装供 UI 层调用）
   Future<Asset?> getAssetByStringId(String stringId) async {
     return await getAssetByUuid(stringId);
+  }
+
+  /// V2.1: 通过 ID 查找资产（扫码去重专用）
+  Future<Asset?> getAssetById(String id) async {
+    return await getAssetByUuid(id);
   }
 
   /// 通过 UUID 列表批量查找资产
@@ -233,7 +266,7 @@ class LocalDbService {
 
     // 这里可以添加云端同步逻辑
     // 当前仅作为接口保留
-    print(
+    log(
       '========== [LocalDb] 同步带标签 "$tag" 的资产：${assetsToSync.length} 条 ==========',
     );
   }

@@ -58,15 +58,15 @@ class _MainTabScreenState extends State<MainTabScreen> {
                   filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.65),
+                      color: Colors.white.withValues(alpha: 0.65),
                       borderRadius: BorderRadius.circular(30),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.4),
+                        color: Colors.white.withValues(alpha: 0.4),
                         width: 1,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
+                          color: Colors.black.withValues(alpha: 0.1),
                           blurRadius: 20,
                           offset: const Offset(0, 5),
                         ),
@@ -164,7 +164,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF2196F3).withOpacity(0.4),
+            color: const Color(0xFF2196F3).withValues(alpha: 0.4),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
