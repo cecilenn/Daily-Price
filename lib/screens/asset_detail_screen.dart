@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
 import '../models/asset.dart';
 import '../services/local_db_service.dart';
+import '../widgets/smart_asset_avatar.dart';
 import 'add_edit_asset_screen.dart';
 
 /// 资产详情页面 - V2.0 新增
@@ -221,44 +222,17 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     }
   }
 
-  /// 构建顶部大图头像
+  /// 构建顶部大图头像 - V3.0 使用 SmartAssetAvatar
   Widget _buildHeaderImage(Asset asset) {
     return Container(
       width: double.infinity,
       height: 250,
       color: Colors.grey.shade200,
-      child: asset.avatarPath != null && File(asset.avatarPath!).existsSync()
-          ? Image.file(File(asset.avatarPath!), fit: BoxFit.cover)
-          : _buildTextAvatar(asset.assetName),
-    );
-  }
-
-  /// 构建文字头像（无图时显示首字母）
-  Widget _buildTextAvatar(String name) {
-    final firstChar = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    // 根据名称生成固定颜色
-    final colors = [
-      Colors.blue,
-      Colors.green,
-      Colors.orange,
-      Colors.purple,
-      Colors.teal,
-      Colors.pink,
-      Colors.indigo,
-      Colors.cyan,
-    ];
-    final color = colors[name.hashCode % colors.length];
-
-    return Container(
-      color: color.withValues(alpha: 0.1),
       child: Center(
-        child: Text(
-          firstChar,
-          style: TextStyle(
-            fontSize: 100,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+        child: SmartAssetAvatar(
+          asset: asset,
+          radius: 80,
+          defaultBgColor: const Color(0xFFE0E0E0),
         ),
       ),
     );

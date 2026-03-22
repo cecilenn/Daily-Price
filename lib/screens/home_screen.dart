@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
 import '../services/local_db_service.dart';
+import '../widgets/smart_asset_avatar.dart';
 import 'asset_detail_screen.dart';
 import 'add_edit_asset_screen.dart';
 import 'scanner_screen.dart';
@@ -892,89 +893,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 构建大头像（网格卡片专用）
+  /// 构建大头像（网格卡片专用）- V3.0 使用 SmartAssetAvatar
   Widget _buildAvatarLarge(Asset asset) {
-    if (asset.avatarPath != null && File(asset.avatarPath!).existsSync()) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.file(
-          File(asset.avatarPath!),
-          width: 48,
-          height: 48,
-          fit: BoxFit.cover,
-        ),
-      );
-    } else {
-      // 文字头像
-      final firstChar = asset.assetName.isNotEmpty
-          ? asset.assetName[0].toUpperCase()
-          : '?';
-      final colors = [
-        Colors.blue,
-        Colors.green,
-        Colors.orange,
-        Colors.purple,
-        Colors.teal,
-        Colors.pink,
-        Colors.indigo,
-      ];
-      final color = colors[asset.assetName.hashCode % colors.length];
-      return Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: Text(
-            firstChar,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ),
-      );
-    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SmartAssetAvatar(
+        asset: asset,
+        radius: 24, // 48x48 的圆角矩形效果
+      ),
+    );
   }
 
-  /// 构建头像（有图显示图，无图显示首字母）
+  /// 构建头像 - V3.0 使用 SmartAssetAvatar
   Widget _buildAvatar(Asset asset) {
-    if (asset.avatarPath != null && File(asset.avatarPath!).existsSync()) {
-      return CircleAvatar(
-        radius: 24,
-        backgroundImage: FileImage(File(asset.avatarPath!)),
-      );
-    } else {
-      // 文字头像
-      final firstChar = asset.assetName.isNotEmpty
-          ? asset.assetName[0].toUpperCase()
-          : '?';
-      final colors = [
-        Colors.blue,
-        Colors.green,
-        Colors.orange,
-        Colors.purple,
-        Colors.teal,
-        Colors.pink,
-        Colors.indigo,
-      ];
-      final color = colors[asset.assetName.hashCode % colors.length];
-      return CircleAvatar(
-        radius: 24,
-        backgroundColor: color.withValues(alpha: 0.1),
-        child: Text(
-          firstChar,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      );
-    }
+    return SmartAssetAvatar(asset: asset, radius: 24);
   }
 
   /// 跳转到添加资产页面

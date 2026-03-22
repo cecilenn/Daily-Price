@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../services/local_db_service.dart';
 import '../utils/image_utils.dart';
+import '../widgets/smart_asset_avatar.dart';
+import '../widgets/avatar_editor_sheet.dart';
 
 /// 添加/编辑资产全屏页面 - V2.0 重构版
 class AddEditAssetScreen extends StatefulWidget {
@@ -35,8 +37,14 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
   late int excludeFromTotal;
   late int excludeFromDaily;
   late String? avatarPath;
+  late int? avatarBgColor;
+  late String? avatarText;
+  late int? avatarIconCodePoint;
   List<String> _customTabs = [];
   bool _isSaving = false;
+
+  // 用于存储临时编辑状态的头像数据
+  AvatarEditResult? _tempAvatarResult;
 
   @override
   void initState() {
@@ -75,6 +83,9 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     excludeFromTotal = widget.existingAsset?.excludeFromTotal ?? 0;
     excludeFromDaily = widget.existingAsset?.excludeFromDaily ?? 0;
     avatarPath = widget.existingAsset?.avatarPath;
+    avatarBgColor = widget.existingAsset?.avatarBgColor;
+    avatarText = widget.existingAsset?.avatarText;
+    avatarIconCodePoint = widget.existingAsset?.avatarIconCodePoint;
 
     _loadCustomTabs();
   }
@@ -129,52 +140,24 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 头像编辑区域
+              // 头像编辑区域 - V3.0 复合头像引擎
               Center(
                 child: GestureDetector(
-                  onTap: () async {
-                    final imagePath = await ImageUtils.pickAndCropImage();
-                    if (imagePath != null) {
-                      setState(() {
-                        avatarPath = imagePath;
-                      });
-                    }
-                  },
+                  onTap: _showAvatarEditor,
                   child: Container(
                     width: 120,
                     height: 120,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey.shade400, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ),
-                    child: avatarPath != null && File(avatarPath!).existsSync()
-                        ? ClipOval(
-                            child: Image.file(
-                              File(avatarPath!),
-                              width: 120,
-                              height: 120,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.camera_alt,
-                                size: 40,
-                                color: Colors.grey.shade600,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '添加头像',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
+                    child: _buildAvatarWidget(),
                   ),
                 ),
               ),
@@ -373,6 +356,65 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     );
   }
 
+  /// 构建头像组件
+  Widget _buildAvatarWidget() {
+    // 构建一个临时 Asset 对象用于 SmartAssetAvatar
+    final tempAsset = Asset.create(
+      id: widget.existingAsset?.id ?? '',
+      assetName: nameController.text.isNotEmpty
+          ? nameController.text
+          : (widget.existingAsset?.assetName ?? ''),
+      purchaseDate: purchaseDate,
+      avatarPath: avatarPath,
+      avatarBgColor: avatarBgColor,
+      avatarText: avatarText,
+      avatarIconCodePoint: avatarIconCodePoint,
+    );
+
+    return SmartAssetAvatar(
+      asset: tempAsset,
+      radius: 60,
+      defaultBgColor: const Color(0xFFE0E0E0),
+    );
+  }
+
+  /// 显示头像编辑器底部面板
+  Future<void> _showAvatarEditor() async {
+    // 构建当前状态的 Asset 对象
+    final currentAsset = Asset.create(
+      id: widget.existingAsset?.id ?? '',
+      assetName: nameController.text.isNotEmpty
+          ? nameController.text
+          : (widget.existingAsset?.assetName ?? ''),
+      purchaseDate: purchaseDate,
+      avatarPath: avatarPath,
+      avatarBgColor: avatarBgColor,
+      avatarText: avatarText,
+      avatarIconCodePoint: avatarIconCodePoint,
+    );
+
+    final result = await showModalBottomSheet<AvatarEditResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AvatarEditorSheet(
+        initialAsset: currentAsset,
+        onAvatarChanged: (avatarData) {
+          // 实时更新状态（可选，当前使用确定后再更新）
+        },
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        avatarPath = result.avatarPath;
+        avatarBgColor = result.avatarBgColor;
+        avatarText = result.avatarText;
+        avatarIconCodePoint = result.avatarIconCodePoint;
+      });
+    }
+  }
+
   Future<void> _saveAsset() async {
     if (_isSaving) return;
 
@@ -428,6 +470,9 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
         excludeFromTotal: excludeFromTotal,
         excludeFromDaily: excludeFromDaily,
         avatarPath: avatarPath,
+        avatarBgColor: avatarBgColor,
+        avatarText: avatarText,
+        avatarIconCodePoint: avatarIconCodePoint,
       );
 
       await LocalDbService().saveAsset(newAsset);

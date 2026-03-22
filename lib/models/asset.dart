@@ -67,6 +67,15 @@ class Asset {
   /// 头像本地路径
   String? avatarPath;
 
+  /// 头像背景颜色 (16进制颜色值，默认 0xFFE0E0E0)
+  int? avatarBgColor;
+
+  /// 头像文字 (用户自定义的1-2个字符)
+  String? avatarText;
+
+  /// 头像图标 CodePoint (Material Icon 的 codePoint)
+  int? avatarIconCodePoint;
+
   /// 不计入总资产 (0 或 1，默认 0)
   int excludeFromTotal;
 
@@ -88,6 +97,9 @@ class Asset {
     this.soldPrice,
     this.soldDate,
     this.avatarPath,
+    this.avatarBgColor,
+    this.avatarText,
+    this.avatarIconCodePoint,
     this.excludeFromTotal = 0,
     this.excludeFromDaily = 0,
   });
@@ -108,6 +120,9 @@ class Asset {
     double? soldPrice,
     int? soldDate,
     String? avatarPath,
+    int? avatarBgColor,
+    String? avatarText,
+    int? avatarIconCodePoint,
     int excludeFromTotal = 0,
     int excludeFromDaily = 0,
   }) {
@@ -126,6 +141,9 @@ class Asset {
       soldPrice: soldPrice,
       soldDate: soldDate,
       avatarPath: avatarPath,
+      avatarBgColor: avatarBgColor,
+      avatarText: avatarText,
+      avatarIconCodePoint: avatarIconCodePoint,
       excludeFromTotal: excludeFromTotal,
       excludeFromDaily: excludeFromDaily,
     );
@@ -247,6 +265,9 @@ class Asset {
       'sold_price': soldPrice,
       'sold_date': soldDate,
       'avatar_path': avatarPath,
+      'avatar_bg_color': avatarBgColor,
+      'avatar_text': avatarText,
+      'avatar_icon_code_point': avatarIconCodePoint,
       'exclude_from_total': excludeFromTotal,
       'exclude_from_daily': excludeFromDaily,
     };
@@ -274,6 +295,9 @@ class Asset {
           : null,
       soldDate: map['sold_date'] as int?,
       avatarPath: map['avatar_path'] as String?,
+      avatarBgColor: map['avatar_bg_color'] as int?,
+      avatarText: map['avatar_text'] as String?,
+      avatarIconCodePoint: map['avatar_icon_code_point'] as int?,
       excludeFromTotal: (map['exclude_from_total'] as int?) ?? 0,
       excludeFromDaily: (map['exclude_from_daily'] as int?) ?? 0,
     );
@@ -312,6 +336,9 @@ class Asset {
     double? soldPrice,
     int? soldDate,
     String? avatarPath,
+    int? avatarBgColor,
+    String? avatarText,
+    int? avatarIconCodePoint,
     int? excludeFromTotal,
     int? excludeFromDaily,
   }) {
@@ -330,6 +357,9 @@ class Asset {
       soldPrice: soldPrice ?? this.soldPrice,
       soldDate: soldDate ?? this.soldDate,
       avatarPath: avatarPath ?? this.avatarPath,
+      avatarBgColor: avatarBgColor ?? this.avatarBgColor,
+      avatarText: avatarText ?? this.avatarText,
+      avatarIconCodePoint: avatarIconCodePoint ?? this.avatarIconCodePoint,
       excludeFromTotal: excludeFromTotal ?? this.excludeFromTotal,
       excludeFromDaily: excludeFromDaily ?? this.excludeFromDaily,
     );
@@ -337,7 +367,7 @@ class Asset {
 
   @override
   String toString() {
-    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, purchaseDate: $purchaseDate, isPinned: $isPinned, category: $category, tags: $tags, createdAt: $createdAt, status: $status, expectedLifespanDays: $expectedLifespanDays, expireDate: $expireDate, soldPrice: $soldPrice, soldDate: $soldDate, avatarPath: $avatarPath, excludeFromTotal: $excludeFromTotal, excludeFromDaily: $excludeFromDaily)';
+    return 'Asset(id: $id, assetName: $assetName, purchasePrice: $purchasePrice, purchaseDate: $purchaseDate, isPinned: $isPinned, category: $category, tags: $tags, createdAt: $createdAt, status: $status, expectedLifespanDays: $expectedLifespanDays, expireDate: $expireDate, soldPrice: $soldPrice, soldDate: $soldDate, avatarPath: $avatarPath, avatarBgColor: $avatarBgColor, avatarText: $avatarText, avatarIconCodePoint: $avatarIconCodePoint, excludeFromTotal: $excludeFromTotal, excludeFromDaily: $excludeFromDaily)';
   }
 
   /// 解析预计使用天数，支持自然语言

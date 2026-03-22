@@ -35,13 +35,13 @@ class LocalDbService {
     // 打开数据库并创建表
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
 
-  /// 数据库创建回调
+  /// 数据库创建回调 - V3.0: 包含头像引擎新字段
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE assets(
@@ -59,6 +59,9 @@ class LocalDbService {
         sold_price REAL,
         sold_date INTEGER,
         avatar_path TEXT,
+        avatar_bg_color INTEGER,
+        avatar_text TEXT,
+        avatar_icon_code_point INTEGER,
         exclude_from_total INTEGER DEFAULT 0,
         exclude_from_daily INTEGER DEFAULT 0
       )
@@ -67,9 +70,37 @@ class LocalDbService {
 
   /// 数据库升级回调
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // V2.0: 删除旧表并重建，解决历史遗留字段约束问题
-    await db.execute('DROP TABLE IF EXISTS assets');
-    await _onCreate(db, newVersion);
+    // V2 -> V3: 添加头像引擎字段 (avatar_bg_color, avatar_text, avatar_icon_code_point)
+    if (oldVersion < 3) {
+      await _addAvatarV3Fields(db);
+    }
+  }
+
+  /// V3.0: 使用 ALTER TABLE 为 assets 表添加头像引擎新字段
+  /// 关键：使用 ALTER TABLE 避免老数据丢失
+  Future<void> _addAvatarV3Fields(Database db) async {
+    // 检查 avatar_bg_color 字段是否存在
+    final columns = await db.rawQuery('PRAGMA table_info(assets)');
+    final columnNames = columns.map((c) => c['name'] as String).toSet();
+
+    // 添加 avatar_bg_color 字段 (存储 16进制颜色 int 值)
+    if (!columnNames.contains('avatar_bg_color')) {
+      await db.execute('ALTER TABLE assets ADD COLUMN avatar_bg_color INTEGER');
+    }
+
+    // 添加 avatar_text 字段 (用户自定义的1-2个字符)
+    if (!columnNames.contains('avatar_text')) {
+      await db.execute('ALTER TABLE assets ADD COLUMN avatar_text TEXT');
+    }
+
+    // 添加 avatar_icon_code_point 字段 (Material Icon 的 codePoint)
+    if (!columnNames.contains('avatar_icon_code_point')) {
+      await db.execute(
+        'ALTER TABLE assets ADD COLUMN avatar_icon_code_point INTEGER',
+      );
+    }
+
+    log('========== [LocalDb] V3.0 头像引擎字段升级完成 ==========');
   }
 
   /// 获取所有资产
