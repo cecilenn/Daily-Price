@@ -15,10 +15,12 @@
 | 🏝️ **悬浮岛导航** | iOS 风格毛玻璃特效底部导航栏，精致胶囊设计 |
 | 📊 **全局统计卡片** | 首页顶部实时展示总资产、日均消费、资产状态分布 |
 | 🏷️ **自定义分栏** | 创建自定义分栏标签，灵活组织资产，支持级联删除 |
+| 📁 **自定义分类** | 替代硬编码分类，用户可自由创建分类（家庭/公司/...） |
+| 🔄 **订阅续费追踪** | 订阅资产支持多次续费记录，自动计算到期日和日均成本 |
 | 💾 **状态持久化** | 分栏选择、排序方式等用户习惯自动保存至 `shared_preferences` |
-| 📤 **CSV 导入/导出** | 跨平台数据备份与恢复，支持 `upsert` 智能合并 |
+| � **CSV 导入/导出** | 跨平台数据备份与恢复，支持 `upsert` 智能合并 |
 | 🎨 **主题切换** | 极简留白、暗黑模式、复古护眼三种主题 |
-| 📊 **共享状态架构** | AssetProvider 统一管理资产数据，所有页面实时同步 |
+| �📊 **共享状态架构** | AssetProvider 统一管理资产数据，所有页面实时同步 |
 
 ---
 
@@ -40,6 +42,7 @@
 | 图片裁剪 | image_cropper | ^8.0.0+ | 头像裁剪功能 |
 | 扫码 | mobile_scanner | ^3.5.0+ | 扫码识别与相册解析 |
 | 颜色选择 | flutter_colorpicker | ^1.0.3 | 专业级 HEX 调色板 |
+| 分析图表 | fl_chart | ^0.69.0 | 数据可视化图表 |
 
 > ⚠️ **依赖版本锁定**：`csv` 插件版本严格锁定为 `5.0.2`，使用相关方法时必须保留 `const ListToCsvConverter()` 和 `const CsvToListConverter()`。
 
@@ -63,13 +66,20 @@ lib/
 │   ├── analysis_screen.dart     # 统计分析页
 │   ├── scanner_screen.dart      # 扫码页面
 │   ├── login_screen.dart        # 登录页面（预留）
-│   └── settings_screen.dart     # 设置页面
+│   ├── settings_screen.dart     # 设置页面
+│   ├── category_settings_screen.dart # 自定义分类设置
+│   ├── tag_settings_screen.dart # 标签设置页面
+│   ├── preference_settings_screen.dart # 偏好设置页面
+│   ├── data_settings_screen.dart # 数据设置页面
+│   └── theme_settings_screen.dart # 主题设置页面
 ├── services/
 │   ├── local_db_service.dart    # SQLite 数据库服务层
 │   └── asset_filter_sorter.dart # 过滤与排序工具类
 ├── utils/
 │   ├── image_utils.dart         # 图片处理工具
-│   └── stats_calculator.dart    # 统计计算工具类
+│   ├── stats_calculator.dart    # 统计计算工具类
+│   ├── time_formatter.dart      # 时长格式化工具
+│   └── pref_keys.dart           # 偏好设置键名常量
 └── widgets/
     ├── asset_form_dialog.dart   # 资产表单对话框
     ├── smart_asset_avatar.dart  # 智能头像组件
@@ -103,6 +113,8 @@ lib/
 | `avatarIconCodePoint` | `int?` | Material 图标 Unicode 码点 |
 | `excludeFromTotal` | `int` | 不计入总资产（0 或 1，默认 0） |
 | `excludeFromDaily` | `int` | 不计入日均消费（0 或 1，默认 0） |
+| `ownershipType` | `String` | 所有权类型：`buyout`（买断）/ `subscription`（订阅） |
+| `renewals` | `List<RenewalRecord>` | 续费记录列表（JSON 字符串存储） |
 
 ### 智能日均算法
 

@@ -22,13 +22,20 @@ lib/
 │   ├── analysis_screen.dart     # 统计分析页
 │   ├── scanner_screen.dart      # 扫码页面
 │   ├── login_screen.dart        # 登录页面（预留）
-│   └── settings_screen.dart     # 设置页面
+│   ├── settings_screen.dart     # 设置页面
+│   ├── category_settings_screen.dart # 自定义分类设置（新增）
+│   ├── tag_settings_screen.dart # 标签设置页面（新增）
+│   ├── preference_settings_screen.dart # 偏好设置页面（新增）
+│   ├── data_settings_screen.dart # 数据设置页面（新增）
+│   └── theme_settings_screen.dart # 主题设置页面（新增）
 ├── services/
 │   ├── local_db_service.dart    # SQLite 数据库服务层
 │   └── asset_filter_sorter.dart # 过滤与排序工具类（新增）
 ├── utils/
 │   ├── image_utils.dart         # 图片处理工具
-│   └── stats_calculator.dart    # 统计计算工具类（新增）
+│   ├── stats_calculator.dart    # 统计计算工具类（新增）
+│   ├── time_formatter.dart      # 时长格式化工具（新增）
+│   └── pref_keys.dart           # 偏好设置键名常量（新增）
 └── widgets/
     ├── asset_form_dialog.dart   # 资产表单对话框
     ├── smart_asset_avatar.dart  # 智能头像组件
@@ -85,6 +92,8 @@ flutter run
 
 ## 数据库架构 (SQLite)
 
+### 当前版本：v7
+
 ### assets 表结构
 
 ```sql
@@ -107,8 +116,26 @@ CREATE TABLE assets(
   avatar_text TEXT,                       -- 头像自定义文字
   avatar_icon_code_point INTEGER,         -- Material 图标 Unicode 码点
   exclude_from_total INTEGER DEFAULT 0,   -- 不计入总资产（0 或 1）
-  exclude_from_daily INTEGER DEFAULT 0    -- 不计入日均消费（0 或 1）
+  exclude_from_daily INTEGER DEFAULT 0,   -- 不计入日均消费（0 或 1）
+  ownership_type TEXT DEFAULT 'buyout',   -- 所有权类型：buyout/subscription
+  renewals TEXT DEFAULT '[]'              -- 续费记录列表（JSON 字符串）
 )
+```
+
+### RenewalRecord 数据结构
+
+```dart
+class RenewalRecord {
+  final DateTime date;      // 续费日期
+  final double amount;      // 续费金额
+  final int days;           // 续费天数
+  
+  RenewalRecord({
+    required this.date,
+    required this.amount,
+    required this.days,
+  });
+}
 ```
 
 ### 字段配合逻辑
@@ -159,6 +186,121 @@ final existingMaps = await db.query(
   whereArgs: allIds,
 );
 final existingIds = existingMaps.map((map) => map['id'] as String).toSet();
+```
+
+---
+
+## 订阅续费计算逻辑
+
+### 计算方式
+
+| 所有权类型 | 计算公式 | 说明 |
+|------------|----------|------|
+| `buyout` | 总成本 / 使用天数 | 传统买断方式，一次购买价 / 使用天数 |
+| `subscription` | 总续费金额 / 总实际订阅天数 | 订阅方式，累计所有续费记录的金额和天数 |
+
+### 续费顺沿规则
+
+当续费日期仍在上一次订阅期限内时，新期限从原到期日开始计算：
+
+```dart
+// 续费顺沿逻辑示例
+DateTime lastExpireDate = ... // 上一次到期日
+DateTime renewalDate = DateTime.now(); // 续费日期
+
+// 如果续费日期早于或等于上次到期日，则从上次到期日开始计算
+DateTime newExpireDate = renewalDate.isBefore(lastExpireDate) || renewalDate.isAtSameMomentAs(lastExpireDate)
+    ? lastExpireDate.add(Duration(days: renewalDays))
+    : renewalDate.add(Duration(days: renewalDays));
+```
+
+### 日均成本计算
+
+```dart
+double get dailyCost {
+  if (ownershipType == 'subscription') {
+    // 订阅方式：总续费金额 / 总实际订阅天数
+    double totalAmount = renewals.fold(0, (sum, r) => sum + r.amount);
+    int totalDays = renewals.fold(0, (sum, r) => sum + r.days);
+    return totalDays > 0 ? totalAmount / totalDays : 0;
+  } else {
+    // 买断方式：传统计算
+    return purchasePrice / calculatedDays;
+  }
+}
+```
+
+---
+
+## 时长显示格式
+
+应用支持五种时长显示模式，通过 `TimeFormatter` 工具类实现：
+
+| 模式 | 格式 | 示例 | 说明 |
+|------|------|------|------|
+| 自动计算 | `1年3月15天` | `1年3月15天` | 智能拆分年、月、日 |
+| 自动合并 | `1.3年` | `1.3年` | 统一换算为年（保留一位小数） |
+| 年 | `1.5年` | `1.5年` | 强制以年为单位显示 |
+| 月 | `15.5月` | `15.5月` | 强制以月为单位显示 |
+| 日 | `450天` | `450天` | 强制以天为单位显示 |
+
+### TimeFormatter 核心方法
+
+```dart
+class TimeFormatter {
+  /// 格式化时长
+  /// - [days] 总天数
+  /// - [mode] 显示模式：auto/auto_merge/year/month/day
+  static String formatDuration(int days, TimeDisplayMode mode) {
+    switch (mode) {
+      case TimeDisplayMode.auto:
+        return _formatAuto(days);
+      case TimeDisplayMode.autoMerge:
+        return _formatAutoMerge(days);
+      case TimeDisplayMode.year:
+        return '${(days / 365.25).toStringAsFixed(1)}年';
+      case TimeDisplayMode.month:
+        return '${(days / 30.44).toStringAsFixed(1)}月';
+      case TimeDisplayMode.day:
+        return '${days}天';
+    }
+  }
+  
+  static String _formatAuto(int days) {
+    if (days < 30) return '${days}天';
+    if (days < 365) return '${days ~/ 30}月${days % 30}天';
+    final years = days ~/ 365;
+    final remainingDays = days % 365;
+    final months = remainingDays ~/ 30;
+    final finalDays = remainingDays % 30;
+    
+    String result = '${years}年';
+    if (months > 0) result += '${months}月';
+    if (finalDays > 0) result += '${finalDays}天';
+    return result;
+  }
+  
+  static String _formatAutoMerge(int days) {
+    final years = days / 365.25;
+    return '${years.toStringAsFixed(1)}年';
+  }
+}
+```
+
+### 用户偏好存储
+
+时长显示模式通过 `shared_preferences` 持久化存储：
+
+```dart
+// 保存用户选择
+await prefs.setString('time_display_mode', mode.name);
+
+// 读取用户选择
+final modeName = prefs.getString('time_display_mode') ?? 'auto';
+final mode = TimeDisplayMode.values.firstWhere(
+  (m) => m.name == modeName,
+  orElse: () => TimeDisplayMode.auto,
+);
 ```
 
 ---
