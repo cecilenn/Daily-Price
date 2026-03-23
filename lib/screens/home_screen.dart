@@ -17,7 +17,9 @@ import 'scanner_screen.dart';
 
 /// 首页 - 资产列表与管理页面（V2.0 重构版）
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ValueNotifier<bool>? hideDockNotifier;
+
+  const HomeScreen({super.key, this.hideDockNotifier});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,8 +33,41 @@ class _HomeScreenState extends State<HomeScreen> {
   String _sortBy = 'created_at';
   bool _sortAscending = false;
 
+  // 搜索状态
+  String _searchQuery = '';
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+
+  // 筛选状态
+  int? _statusFilter;
+  Set<String> _selectedCategories = {};
+  Set<String> _selectedTags = {};
+  RangeValues? _priceRange;
+
+  // 多选状态
+  bool _isMultiSelectMode = false;
+  Set<String> _selectedAssetIds = {};
+
+  /// 更新多选模式状态并通知父级
+  void _setMultiSelectMode(bool value) {
+    setState(() {
+      _isMultiSelectMode = value;
+    });
+    widget.hideDockNotifier?.value = value;
+  }
+
   // 自定义分栏列表
   List<String> _customTabs = [];
+
+  // 计算当前激活的筛选条件数
+  int get _activeFilterCount {
+    int count = 0;
+    if (_statusFilter != null) count++;
+    if (_selectedCategories.isNotEmpty) count++;
+    if (_selectedTags.isNotEmpty) count++;
+    if (_priceRange != null) count++;
+    return count;
+  }
 
   // SharedPreferences 键名
   static const String _prefKeyCategory = 'home_current_category';
@@ -231,176 +266,57 @@ class _HomeScreenState extends State<HomeScreen> {
           category: _currentCategory,
           sortBy: _sortBy,
           ascending: _sortAscending,
+          searchQuery: _searchQuery,
+          statusFilter: _statusFilter,
+          categoryFilters: _selectedCategories.isNotEmpty
+              ? _selectedCategories
+              : null,
+          tagFilters: _selectedTags.isNotEmpty ? _selectedTags : null,
+          priceRange: _priceRange,
         );
         final stats = StatsCalculator.calculate(provider.assets);
 
         return Scaffold(
-          appBar: AppBar(
-            title: Text(
-              _getCategoryLabel(_currentCategory),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            centerTitle: true,
-            elevation: 0,
-            leading: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.folder_outlined),
-                  tooltip: '分栏',
-                  onSelected: (value) => _saveCategory(value),
-                  itemBuilder: (context) {
-                    final items = <PopupMenuEntry<String>>[
-                      const PopupMenuItem(value: 'all', child: Text('全部')),
-                      const PopupMenuItem(value: 'pinned', child: Text('置顶')),
-                      const PopupMenuItem(
-                        value: 'physical',
-                        child: Text('实体资产'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'virtual',
-                        child: Text('虚拟资产'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'subscription',
-                        child: Text('限时资产'),
-                      ),
-                    ];
-                    if (_customTabs.isNotEmpty) {
-                      items.add(const PopupMenuDivider());
-                      for (final tab in _customTabs) {
-                        items.add(
-                          PopupMenuItem(
-                            value: 'custom_$tab',
-                            child: Row(
-                              children: [
-                                const Icon(Icons.label_outline, size: 18),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    tab,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    }
-                    return items;
-                  },
-                ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.sort),
-                  tooltip: '排序',
-                  onSelected: (value) {
-                    if (value == 'toggle_order') {
-                      _saveSortSettings(_sortBy, !_sortAscending);
-                    } else {
-                      _saveSortSettings(value, _sortAscending);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'created_at',
-                      child: Row(
-                        children: [
-                          if (_sortBy == 'created_at')
-                            const Icon(Icons.check, size: 18),
-                          const SizedBox(width: 8),
-                          const Text('添加日期'),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'name',
-                      child: Row(
-                        children: [
-                          if (_sortBy == 'name')
-                            const Icon(Icons.check, size: 18),
-                          const SizedBox(width: 8),
-                          const Text('名称'),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'purchase_date',
-                      child: Row(
-                        children: [
-                          if (_sortBy == 'purchase_date')
-                            const Icon(Icons.check, size: 18),
-                          const SizedBox(width: 8),
-                          const Text('购买日期'),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'price',
-                      child: Row(
-                        children: [
-                          if (_sortBy == 'price')
-                            const Icon(Icons.check, size: 18),
-                          const SizedBox(width: 8),
-                          const Text('价格'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: 'toggle_order',
-                      child: Row(
-                        children: [
-                          Icon(
-                            _sortAscending
-                                ? Icons.arrow_upward
-                                : Icons.arrow_downward,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(_sortAscending ? '升序' : '降序'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            leadingWidth: 100,
-            actions: [
-              // V2.1: 扫码入库按钮
-              IconButton(
-                icon: const Icon(Icons.qr_code_scanner),
-                onPressed: () => _handleScanQRCode(),
-                tooltip: '扫码入库',
-              ),
-            ],
-          ),
-          body: RefreshIndicator(
-            onRefresh: () async => await provider.loadAssets(),
-            child: Center(
+          appBar: _isMultiSelectMode
+              ? _buildMultiSelectAppBar(filteredAssets)
+              : _isSearching
+              ? _buildSearchAppBar()
+              : _buildNormalAppBar(),
+          body: PopScope(
+            canPop: !_isMultiSelectMode,
+            onPopInvokedWithResult: (didPop, result) {
+              if (_isMultiSelectMode) {
+                _setMultiSelectMode(false);
+                setState(() {
+                  _selectedAssetIds.clear();
+                });
+              }
+            },
+            child: RefreshIndicator(
+              onRefresh: () async => await provider.loadAssets(),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // V2.0 新增：顶部数据统计卡片
-                      _buildStatsCard(stats),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    // V2.0 新增：顶部数据统计卡片（固定在顶部）
+                    if (!_isMultiSelectMode) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                        child: _buildStatsCard(stats),
+                      ),
                       const SizedBox(height: 8),
-                      // 资产列表标题
-                      Row(
+                    ],
+                    // 资产列表标题（固定在统计卡片下方）
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            _getCategoryLabel(_currentCategory),
+                            _isMultiSelectMode
+                                ? '已选 ${_selectedAssetIds.length} 项'
+                                : _getCategoryLabel(_currentCategory),
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -415,103 +331,104 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      if (provider.isLoading)
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: CircularProgressIndicator(),
-                          ),
-                        )
-                      else if (provider.error != null)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.error_outline,
-                                  size: 40,
-                                  color: Colors.red.shade300,
+                    ),
+                    const SizedBox(height: 8),
+                    // 资产列表（可滚动）
+                    Expanded(
+                      child: provider.isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : provider.error != null
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      size: 40,
+                                      color: Colors.red.shade300,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      provider.error!,
+                                      style: const TextStyle(color: Colors.red),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    ElevatedButton.icon(
+                                      onPressed: () async =>
+                                          await provider.loadAssets(),
+                                      icon: const Icon(Icons.refresh),
+                                      label: const Text('重试'),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  provider.error!,
-                                  style: const TextStyle(color: Colors.red),
-                                ),
-                                const SizedBox(height: 10),
-                                ElevatedButton.icon(
-                                  onPressed: () async =>
-                                      await provider.loadAssets(),
-                                  icon: const Icon(Icons.refresh),
-                                  label: const Text('重试'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else if (filteredAssets.isEmpty)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.inbox_outlined,
-                                  size: 40,
-                                  color: Colors.grey.shade300,
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  provider.assets.isEmpty
-                                      ? '暂无资产数据'
-                                      : '当前分栏暂无资产',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  provider.assets.isEmpty
-                                      ? '点击右上角 + 添加您的第一个资产'
-                                      : '切换其他分栏查看或添加新资产',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 1.2,
-                                crossAxisSpacing: 10,
-                                mainAxisSpacing: 10,
                               ),
-                          padding: const EdgeInsets.only(
-                            bottom: 120,
-                            left: 4,
-                            right: 4,
-                            top: 4,
-                          ),
-                          itemCount: filteredAssets.length,
-                          itemBuilder: (context, index) =>
-                              _buildAssetCard(filteredAssets[index]),
-                        ),
-                    ],
-                  ),
+                            )
+                          : filteredAssets.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.inbox_outlined,
+                                      size: 40,
+                                      color: Colors.grey.shade300,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      provider.assets.isEmpty
+                                          ? '暂无资产数据'
+                                          : '当前分栏暂无资产',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      provider.assets.isEmpty
+                                          ? '点击右上角 + 添加您的第一个资产'
+                                          : '切换其他分栏查看或添加新资产',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade400,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : GridView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    childAspectRatio: 1.2,
+                                    crossAxisSpacing: 10,
+                                    mainAxisSpacing: 10,
+                                  ),
+                              padding: EdgeInsets.only(
+                                bottom: _isMultiSelectMode ? 80 : 120,
+                                left: 4,
+                                right: 4,
+                                top: 4,
+                              ),
+                              itemCount: filteredAssets.length,
+                              itemBuilder: (context, index) =>
+                                  _buildAssetCard(filteredAssets[index]),
+                            ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
+          bottomSheet: _isMultiSelectMode
+              ? _buildMultiSelectBottomSheet()
+              : null,
         );
       },
     );
@@ -629,23 +546,48 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildAssetCard(Asset asset) {
     // 状态颜色指示器
     final statusColor = _getStatusColor(asset.status);
+    final isSelected = _selectedAssetIds.contains(asset.id);
 
     return Card(
       margin: EdgeInsets.zero,
       elevation: 1,
-      color: asset.status == 2 ? Colors.grey.shade200 : Colors.white,
+      color: _isMultiSelectMode && isSelected
+          ? Theme.of(context).primaryColor.withValues(alpha: 0.05)
+          : asset.status == 2
+          ? Colors.grey.shade200
+          : Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () async {
-          // 点击跳转到详情页
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => AssetDetailScreen(asset: asset),
-            ),
-          );
-          // Provider 会自动通知 UI 更新，无需手动刷新
+          if (_isMultiSelectMode) {
+            // 多选模式下点击切换选中状态
+            setState(() {
+              if (_selectedAssetIds.contains(asset.id)) {
+                _selectedAssetIds.remove(asset.id);
+              } else {
+                _selectedAssetIds.add(asset.id);
+              }
+            });
+          } else {
+            // 普通模式点击跳转到详情页
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AssetDetailScreen(asset: asset),
+              ),
+            );
+            // Provider 会自动通知 UI 更新，无需手动刷新
+          }
+        },
+        onLongPress: () {
+          // 长按进入多选模式
+          if (!_isMultiSelectMode) {
+            _setMultiSelectMode(true);
+            setState(() {
+              _selectedAssetIds.add(asset.id);
+            });
+          }
         },
         child: Stack(
           children: [
@@ -654,21 +596,42 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // 顶部：状态指示器 + 置顶标记
+                  // 顶部：状态指示器 + 复选框/置顶标记
                   SizedBox(
                     height: 14,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // 状态颜色小圆点
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
+                        // 多选模式显示复选框，否则显示状态颜色小圆点
+                        if (_isMultiSelectMode)
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: Checkbox(
+                              value: isSelected,
+                              onChanged: (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedAssetIds.add(asset.id);
+                                  } else {
+                                    _selectedAssetIds.remove(asset.id);
+                                  }
+                                });
+                              },
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          )
+                        else
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
+                            ),
                           ),
-                        ),
                         // 置顶标记（如有）
                         if (asset.isPinned == 1)
                           Icon(
@@ -955,6 +918,835 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       }
+    }
+  }
+
+  /// 构建普通 AppBar
+  PreferredSizeWidget _buildNormalAppBar() {
+    return AppBar(
+      title: Text(
+        _getCategoryLabel(_currentCategory),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      centerTitle: true,
+      elevation: 0,
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.folder_outlined),
+            tooltip: '分栏',
+            onSelected: (value) => _saveCategory(value),
+            itemBuilder: (context) {
+              final items = <PopupMenuEntry<String>>[
+                const PopupMenuItem(value: 'all', child: Text('全部')),
+                const PopupMenuItem(value: 'pinned', child: Text('置顶')),
+                const PopupMenuItem(value: 'physical', child: Text('实体资产')),
+                const PopupMenuItem(value: 'virtual', child: Text('虚拟资产')),
+                const PopupMenuItem(value: 'subscription', child: Text('限时资产')),
+              ];
+              if (_customTabs.isNotEmpty) {
+                items.add(const PopupMenuDivider());
+                for (final tab in _customTabs) {
+                  items.add(
+                    PopupMenuItem(
+                      value: 'custom_$tab',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.label_outline, size: 18),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              tab,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+              }
+              return items;
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: '筛选与排序',
+            onPressed: _showFilterSortSheet,
+          ),
+        ],
+      ),
+      leadingWidth: 100,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.search),
+          tooltip: '搜索',
+          onPressed: () {
+            setState(() {
+              _isSearching = true;
+            });
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.qr_code_scanner),
+          onPressed: () => _handleScanQRCode(),
+          tooltip: '扫码入库',
+        ),
+      ],
+    );
+  }
+
+  /// 构建搜索 AppBar
+  PreferredSizeWidget _buildSearchAppBar() {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () {
+          setState(() {
+            _isSearching = false;
+            _searchQuery = '';
+            _searchController.clear();
+          });
+        },
+      ),
+      title: TextField(
+        controller: _searchController,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: '搜索资产名称...',
+          border: InputBorder.none,
+        ),
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value;
+          });
+        },
+      ),
+      centerTitle: false,
+      elevation: 0,
+      actions: [
+        if (_searchQuery.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              setState(() {
+                _searchQuery = '';
+                _searchController.clear();
+              });
+            },
+          ),
+      ],
+    );
+  }
+
+  /// 构建多选模式 AppBar
+  PreferredSizeWidget _buildMultiSelectAppBar(List<Asset> filteredAssets) {
+    final allSelected = _selectedAssetIds.length == filteredAssets.length;
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () {
+          _setMultiSelectMode(false);
+          setState(() {
+            _selectedAssetIds.clear();
+          });
+        },
+      ),
+      title: Text('已选 ${_selectedAssetIds.length} 项'),
+      centerTitle: true,
+      elevation: 0,
+      actions: [
+        IconButton(
+          icon: Icon(
+            allSelected ? Icons.check_box : Icons.check_box_outline_blank,
+          ),
+          onPressed: () {
+            setState(() {
+              if (allSelected) {
+                _selectedAssetIds.clear();
+              } else {
+                _selectedAssetIds = filteredAssets.map((a) => a.id).toSet();
+              }
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+  /// 构建多选模式底部操作栏
+  Widget _buildMultiSelectBottomSheet() {
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildActionButton(
+              icon: Icons.delete,
+              label: '删除',
+              color: Colors.red,
+              onPressed: _selectedAssetIds.isEmpty
+                  ? null
+                  : _showBatchDeleteConfirm,
+            ),
+            _buildActionButton(
+              icon: Icons.label,
+              label: '打标签',
+              color: Colors.blue,
+              onPressed: _selectedAssetIds.isEmpty ? null : _showBatchTagSheet,
+            ),
+            _buildActionButton(
+              icon: Icons.category,
+              label: '改分类',
+              color: Colors.orange,
+              onPressed: _selectedAssetIds.isEmpty
+                  ? null
+                  : _showBatchCategoryDialog,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 构建操作按钮
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: color,
+            side: BorderSide(color: color),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 显示筛选排序 BottomSheet
+  void _showFilterSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            maxChildSize: 0.9,
+            minChildSize: 0.5,
+            expand: false,
+            builder: (context, scrollController) => Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 拖拽指示条
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      children: [
+                        // 排序部分
+                        _buildSortSection(setSheetState),
+                        const Divider(),
+
+                        // 状态筛选
+                        _buildStatusFilterSection(setSheetState),
+                        const Divider(),
+
+                        // 分类筛选
+                        _buildCategoryFilterSection(setSheetState),
+                        const Divider(),
+
+                        // 标签筛选
+                        if (_customTabs.isNotEmpty) ...[
+                          _buildTagFilterSection(setSheetState),
+                          const Divider(),
+                        ],
+
+                        // 价格区间
+                        _buildPriceFilterSection(setSheetState),
+                        const SizedBox(height: 24),
+
+                        // 重置按钮
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setSheetState(() {
+                                _sortBy = 'created_at';
+                                _sortAscending = false;
+                                _statusFilter = null;
+                                _selectedCategories.clear();
+                                _selectedTags.clear();
+                                _priceRange = null;
+                              });
+                              setState(() {});
+                              _saveSortSettings('created_at', false);
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('重置全部筛选'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 构建排序部分
+  Widget _buildSortSection(void Function(VoidCallback) setStateFn) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '排序',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('添加日期'),
+              selected: _sortBy == 'created_at',
+              onSelected: (selected) {
+                if (selected) _saveSortSettings('created_at', _sortAscending);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('名称'),
+              selected: _sortBy == 'name',
+              onSelected: (selected) {
+                if (selected) _saveSortSettings('name', _sortAscending);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('购入价格'),
+              selected: _sortBy == 'price',
+              onSelected: (selected) {
+                if (selected) _saveSortSettings('price', _sortAscending);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('日均消费'),
+              selected: _sortBy == 'dailyCost',
+              onSelected: (selected) {
+                if (selected) _saveSortSettings('dailyCost', _sortAscending);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('已用天数'),
+              selected: _sortBy == 'daysUsed',
+              onSelected: (selected) {
+                if (selected) _saveSortSettings('daysUsed', _sortAscending);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('剩余天数'),
+              selected: _sortBy == 'remainingDays',
+              onSelected: (selected) {
+                if (selected)
+                  _saveSortSettings('remainingDays', _sortAscending);
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            ChoiceChip(
+              label: const Text('升序'),
+              selected: _sortAscending,
+              onSelected: (selected) {
+                if (selected) _saveSortSettings(_sortBy, true);
+              },
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('降序'),
+              selected: !_sortAscending,
+              onSelected: (selected) {
+                if (selected) _saveSortSettings(_sortBy, false);
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// 构建状态筛选部分
+  Widget _buildStatusFilterSection(void Function(VoidCallback) setStateFn) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '状态筛选',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('全部'),
+              selected: _statusFilter == null,
+              onSelected: (selected) {
+                if (selected) setStateFn(() => _statusFilter = null);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('服役中'),
+              selected: _statusFilter == 0,
+              onSelected: (selected) {
+                if (selected) setStateFn(() => _statusFilter = 0);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('已退役'),
+              selected: _statusFilter == 1,
+              onSelected: (selected) {
+                if (selected) setStateFn(() => _statusFilter = 1);
+              },
+            ),
+            ChoiceChip(
+              label: const Text('已卖出'),
+              selected: _statusFilter == 2,
+              onSelected: (selected) {
+                if (selected) setStateFn(() => _statusFilter = 2);
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// 构建分类筛选部分
+  Widget _buildCategoryFilterSection(void Function(VoidCallback) setStateFn) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '分类筛选',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilterChip(
+              label: const Text('实体资产'),
+              selected: _selectedCategories.contains('physical'),
+              onSelected: (selected) {
+                setStateFn(() {
+                  if (selected) {
+                    _selectedCategories.add('physical');
+                  } else {
+                    _selectedCategories.remove('physical');
+                  }
+                });
+              },
+            ),
+            FilterChip(
+              label: const Text('虚拟资产'),
+              selected: _selectedCategories.contains('virtual'),
+              onSelected: (selected) {
+                setStateFn(() {
+                  if (selected) {
+                    _selectedCategories.add('virtual');
+                  } else {
+                    _selectedCategories.remove('virtual');
+                  }
+                });
+              },
+            ),
+            FilterChip(
+              label: const Text('限时资产'),
+              selected: _selectedCategories.contains('subscription'),
+              onSelected: (selected) {
+                setStateFn(() {
+                  if (selected) {
+                    _selectedCategories.add('subscription');
+                  } else {
+                    _selectedCategories.remove('subscription');
+                  }
+                });
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// 构建标签筛选部分
+  Widget _buildTagFilterSection(void Function(VoidCallback) setStateFn) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '标签筛选',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _customTabs.map((tab) {
+            final tag = 'custom_$tab';
+            return FilterChip(
+              label: Text(tab),
+              selected: _selectedTags.contains(tag),
+              onSelected: (selected) {
+                setStateFn(() {
+                  if (selected) {
+                    _selectedTags.add(tag);
+                  } else {
+                    _selectedTags.remove(tag);
+                  }
+                });
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  /// 构建价格筛选部分
+  Widget _buildPriceFilterSection(void Function(VoidCallback) setStateFn) {
+    return Consumer<AssetProvider>(
+      builder: (context, provider, child) {
+        // 计算最高价格（1.2 倍向上取整）
+        double maxPrice = 10000;
+        if (provider.assets.isNotEmpty) {
+          final highestPrice = provider.assets
+              .where((a) => a.purchasePrice != null)
+              .fold(
+                0.0,
+                (max, a) => a.purchasePrice! > max ? a.purchasePrice! : max,
+              );
+          if (highestPrice > 0) {
+            maxPrice = (highestPrice * 1.2).ceilToDouble();
+          }
+        }
+
+        // 确保 maxPrice > 0，避免 RangeSlider 出错
+        if (maxPrice <= 0) {
+          maxPrice = 10000;
+        }
+
+        final currentRange = _priceRange ?? RangeValues(0, maxPrice);
+
+        // 确保 values 在有效范围内
+        final validStart = currentRange.start.clamp(0, maxPrice).toDouble();
+        final validEnd = currentRange.end.clamp(0, maxPrice).toDouble();
+        final validRange = RangeValues(
+          validStart <= validEnd ? validStart : validEnd,
+          validEnd >= validStart ? validEnd : validStart,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '价格区间',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '¥${validRange.start.toStringAsFixed(0)} — ¥${validRange.end.toStringAsFixed(0)}',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 8),
+            RangeSlider(
+              values: validRange,
+              min: 0,
+              max: maxPrice,
+              divisions: 20,
+              labels: RangeLabels(
+                '¥${validRange.start.toStringAsFixed(0)}',
+                '¥${validRange.end.toStringAsFixed(0)}',
+              ),
+              onChanged: (values) {
+                setStateFn(() {
+                  _priceRange = values;
+                });
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 重置筛选条件
+  void _resetFilters() {
+    setState(() {
+      _searchQuery = '';
+      _searchController.clear();
+      _statusFilter = null;
+      _selectedCategories.clear();
+      _selectedTags.clear();
+      _priceRange = null;
+      _sortBy = 'created_at';
+      _sortAscending = false;
+    });
+    _saveSortSettings('created_at', false);
+  }
+
+  /// 显示批量删除确认对话框
+  void _showBatchDeleteConfirm() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定删除 ${_selectedAssetIds.length} 项资产？此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _batchDeleteAssets();
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 批量删除资产
+  Future<void> _batchDeleteAssets() async {
+    final provider = context.read<AssetProvider>();
+    int deletedCount = 0;
+
+    for (final id in _selectedAssetIds) {
+      try {
+        await provider.deleteAsset(id);
+        deletedCount++;
+      } catch (e) {
+        // 继续删除其他资产
+      }
+    }
+
+    if (mounted) {
+      _setMultiSelectMode(false);
+      setState(() {
+        _selectedAssetIds.clear();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已删除 $deletedCount 项资产'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  /// 显示批量打标签 BottomSheet
+  void _showBatchTagSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '选择要添加的标签',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                if (_customTabs.isEmpty)
+                  const Text('暂无自定义标签')
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _customTabs.map((tab) {
+                      return FilterChip(
+                        label: Text(tab),
+                        selected: false,
+                        onSelected: (selected) {
+                          if (selected) {
+                            Navigator.pop(context);
+                            _batchAddTag('custom_$tab');
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 批量添加标签
+  Future<void> _batchAddTag(String tag) async {
+    final provider = context.read<AssetProvider>();
+    int updatedCount = 0;
+
+    for (final id in _selectedAssetIds) {
+      final asset = provider.assets.firstWhere((a) => a.id == id);
+      if (!asset.tags.contains(tag)) {
+        final updatedAsset = asset.copyWith(tags: [...asset.tags, tag]);
+        await provider.saveAsset(updatedAsset);
+        updatedCount++;
+      }
+    }
+
+    if (mounted) {
+      _setMultiSelectMode(false);
+      setState(() {
+        _selectedAssetIds.clear();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已为 $updatedCount 项资产添加标签'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    }
+  }
+
+  /// 显示批量改分类对话框
+  void _showBatchCategoryDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('选择分类'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('实体资产'),
+              onTap: () {
+                Navigator.pop(context);
+                _batchUpdateCategory('physical');
+              },
+            ),
+            ListTile(
+              title: const Text('虚拟资产'),
+              onTap: () {
+                Navigator.pop(context);
+                _batchUpdateCategory('virtual');
+              },
+            ),
+            ListTile(
+              title: const Text('限时资产'),
+              onTap: () {
+                Navigator.pop(context);
+                _batchUpdateCategory('subscription');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 批量更新分类
+  Future<void> _batchUpdateCategory(String category) async {
+    final provider = context.read<AssetProvider>();
+    int updatedCount = 0;
+
+    for (final id in _selectedAssetIds) {
+      final asset = provider.assets.firstWhere((a) => a.id == id);
+      if (asset.category != category) {
+        final updatedAsset = asset.copyWith(category: category);
+        await provider.saveAsset(updatedAsset);
+        updatedCount++;
+      }
+    }
+
+    if (mounted) {
+      _setMultiSelectMode(false);
+      setState(() {
+        _selectedAssetIds.clear();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已更新 $updatedCount 项资产的分类'),
+          backgroundColor: Colors.orange,
+        ),
+      );
     }
   }
 }

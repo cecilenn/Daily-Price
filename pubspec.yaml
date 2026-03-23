@@ -67,6 +67,7 @@ dependencies:
   permission_handler: ^11.4.0
   gal: ^2.3.2
   flutter_colorpicker: ^1.1.0
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:

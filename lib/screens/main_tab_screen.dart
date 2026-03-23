@@ -16,11 +16,26 @@ class MainTabScreen extends StatefulWidget {
 class _MainTabScreenState extends State<MainTabScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = [
-    const HomeScreen(),
-    const AnalysisScreen(),
-    const SettingsScreen(),
-  ];
+  // 控制悬浮岛显示状态
+  final ValueNotifier<bool> _hideDock = ValueNotifier<bool>(false);
+
+  late final List<Widget> _pages;
+
+  @override
+  void initState() {
+    super.initState();
+    _pages = [
+      HomeScreen(hideDockNotifier: _hideDock),
+      const AnalysisScreen(),
+      const SettingsScreen(),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _hideDock.dispose();
+    super.dispose();
+  }
 
   /// 跳转到添加资产页面
   Future<void> _navigateToAddAsset() async {
@@ -45,59 +60,71 @@ class _MainTabScreenState extends State<MainTabScreen> {
 
   /// 构建悬浮岛底部导航栏 - V2.0 iOS 毛玻璃特效
   Widget _buildFloatingDock() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Row(
-          children: [
-            // 左侧胶囊导航栏 - 毛玻璃效果
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(30),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        width: 1,
+    return ValueListenableBuilder<bool>(
+      valueListenable: _hideDock,
+      builder: (context, hideDock, child) {
+        if (hideDock) {
+          return const SizedBox.shrink();
+        }
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Row(
+              children: [
+                // 左侧胶囊导航栏 - 毛玻璃效果
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(30),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 20,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildNavItem(
+                              0,
+                              Icons.folder_outlined,
+                              Icons.folder,
+                            ),
+                            _buildNavItem(
+                              1,
+                              Icons.bar_chart_outlined,
+                              Icons.bar_chart,
+                            ),
+                            _buildNavItem(
+                              2,
+                              Icons.settings_outlined,
+                              Icons.settings,
+                            ),
+                          ],
+                        ),
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 20,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildNavItem(0, Icons.folder_outlined, Icons.folder),
-                        _buildNavItem(
-                          1,
-                          Icons.bar_chart_outlined,
-                          Icons.bar_chart,
-                        ),
-                        _buildNavItem(
-                          2,
-                          Icons.settings_outlined,
-                          Icons.settings,
-                        ),
-                      ],
                     ),
                   ),
                 ),
-              ),
+                // 右侧悬浮添加按钮
+                const SizedBox(width: 12),
+                _buildAddButton(),
+              ],
             ),
-            // 右侧悬浮添加按钮
-            const SizedBox(width: 12),
-            _buildAddButton(),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
