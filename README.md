@@ -18,6 +18,7 @@
 | 💾 **状态持久化** | 分栏选择、排序方式等用户习惯自动保存至 `shared_preferences` |
 | 📤 **CSV 导入/导出** | 跨平台数据备份与恢复，支持 `upsert` 智能合并 |
 | 🎨 **主题切换** | 极简留白、暗黑模式、复古护眼三种主题 |
+| 📊 **共享状态架构** | AssetProvider 统一管理资产数据，所有页面实时同步 |
 
 ---
 
@@ -27,7 +28,7 @@
 |------|-----------|------|------|
 | 框架 | Flutter | ^3.11.0 | 跨平台 UI 框架 |
 | 数据库 | sqflite | 最新版 | SQLite 本地关系型数据库 |
-| 状态管理 | Provider | ^6.1.2 | 应用状态管理 |
+| 状态管理 | Provider | ^6.1.2 | 全局状态管理（AppProvider 管主题偏好，AssetProvider 管资产数据） |
 | 本地存储 | shared_preferences | ^2.3.3 | 用户偏好设置持久化 |
 | 日期处理 | intl | ^0.19.0 | 日期格式化与解析 |
 | 文件操作 | path_provider | ^2.1.5 | 获取系统文件路径 |
@@ -52,7 +53,8 @@ lib/
 ├── models/
 │   └── asset.dart               # 核心资产数据模型
 ├── providers/
-│   └── app_provider.dart        # 全局状态管理
+│   ├── app_provider.dart        # 全局状态管理（主题偏好）
+│   └── asset_provider.dart      # 资产数据共享状态管理
 ├── screens/
 │   ├── main_tab_screen.dart     # 主标签页（悬浮岛导航）
 │   ├── home_screen.dart         # 首页：资产列表 + 全局统计
@@ -63,9 +65,11 @@ lib/
 │   ├── login_screen.dart        # 登录页面（预留）
 │   └── settings_screen.dart     # 设置页面
 ├── services/
-│   └── local_db_service.dart    # SQLite 数据库服务层
+│   ├── local_db_service.dart    # SQLite 数据库服务层
+│   └── asset_filter_sorter.dart # 过滤与排序工具类
 ├── utils/
-│   └── image_utils.dart         # 图片处理工具
+│   ├── image_utils.dart         # 图片处理工具
+│   └── stats_calculator.dart    # 统计计算工具类
 └── widgets/
     ├── asset_form_dialog.dart   # 资产表单对话框
     ├── smart_asset_avatar.dart  # 智能头像组件

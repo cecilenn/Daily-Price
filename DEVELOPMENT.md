@@ -4,6 +4,47 @@
 
 ---
 
+## 项目结构
+
+```
+lib/
+├── main.dart                    # 应用入口
+├── models/
+│   └── asset.dart               # 核心资产数据模型
+├── providers/
+│   ├── app_provider.dart        # 全局状态管理（主题偏好）
+│   └── asset_provider.dart      # 资产数据共享状态管理（新增）
+├── screens/
+│   ├── main_tab_screen.dart     # 主标签页（悬浮岛导航）
+│   ├── home_screen.dart         # 首页：资产列表 + 全局统计
+│   ├── asset_detail_screen.dart # 资产详情页
+│   ├── add_edit_asset_screen.dart # 添加/编辑资产页
+│   ├── analysis_screen.dart     # 统计分析页
+│   ├── scanner_screen.dart      # 扫码页面
+│   ├── login_screen.dart        # 登录页面（预留）
+│   └── settings_screen.dart     # 设置页面
+├── services/
+│   ├── local_db_service.dart    # SQLite 数据库服务层
+│   └── asset_filter_sorter.dart # 过滤与排序工具类（新增）
+├── utils/
+│   ├── image_utils.dart         # 图片处理工具
+│   └── stats_calculator.dart    # 统计计算工具类（新增）
+└── widgets/
+    ├── asset_form_dialog.dart   # 资产表单对话框
+    ├── smart_asset_avatar.dart  # 智能头像组件
+    └── avatar_editor_sheet.dart # 头像编辑器底部面板
+```
+
+### 新增文件说明
+
+| 文件 | 职责 |
+|------|------|
+| `asset_provider.dart` | 资产数据的集中管理，提供 loadAssets、saveAsset、deleteAsset、importAssets 等方法，所有页面通过 Consumer 或 context.read 访问 |
+| `asset_filter_sorter.dart` | 提供 filterAndSort 静态方法，根据分栏、排序方式过滤和排序资产列表 |
+| `stats_calculator.dart` | 提供 calculate 静态方法，计算总资产、日均消费、各状态资产数量等统计数据 |
+
+---
+
 ## 环境准备
 
 ### 必需软件
@@ -97,6 +138,64 @@ await db.insert(
 );
 ```
 
+### importAssetsWithUpsert 性能优化
+
+V2.0 性能优化：使用 WHERE IN 批量查询 + 内存 Set 判断 + batch 统一 commit，避免逐条 SELECT 查询。
+
+```dart
+// 优化前：对每条资产逐条 SELECT 查重
+for (final asset in parsedAssets) {
+  final existing = await db.query('assets', where: 'id = ?', whereArgs: [asset.id]);
+  // ...
+}
+
+// 优化后：一次性批量查询
+final allIds = parsedAssets.map((asset) => asset.id).toList();
+final placeholders = List.filled(allIds.length, '?').join(',');
+final existingMaps = await db.query(
+  'assets',
+  columns: ['id'],
+  where: 'id IN ($placeholders)',
+  whereArgs: allIds,
+);
+final existingIds = existingMaps.map((map) => map['id'] as String).toSet();
+```
+
+---
+
+## 状态管理架构
+
+当前系统采用双 Provider 架构：
+
+| Provider | 职责 |
+|----------|------|
+| `AppProvider` | 主题模式、日期格式等用户偏好设置 |
+| `AssetProvider` | 资产数据的加载、增删改、导入，所有页面共享 |
+
+### AssetProvider 核心方法
+
+| 方法 | 说明 |
+|------|------|
+| `loadAssets()` | 加载全部资产数据，启动时自动调用 |
+| `saveAsset(asset)` | 新增或更新单个资产 |
+| `deleteAsset(id)` | 删除资产并物理删除关联文件 |
+| `importAssets(list)` | 批量导入（upsert），内部自动重新加载 |
+| `togglePinned(asset)` | 切换置顶状态 |
+
+### 数据流
+
+```
+LocalDbService (底层 CRUD)
+        ↑
+AssetProvider (状态管理 + 通知)
+        ↑
+Consumer<AssetProvider> (UI 层读取)
+        ↓
+HomeScreen / AssetDetailScreen / SettingsScreen
+```
+
+Screen 层不再直接调用 LocalDbService，统一通过 AssetProvider 操作。
+
 ---
 
 ## UI/UX 架构
@@ -157,7 +256,7 @@ MobileScanner(
 
 | 优先级 | 条件 | 渲染结果 |
 |--------|------|----------|
-| 1 | `avatarPath != null` | 本地图片文件（`Image.file` + `ClipOval`） |
+| 1 | `avatarPath != null` 且文件存在 | 本地图片文件（`Image.file` + `ClipOval`） |
 | 2 | `avatarIconCodePoint != null` | Material 矢量图标（`IconData` + 圆形背景色） |
 | 3 | `avatarText != null` | 自定义文字（`FittedBox` 自动缩放防溢出） |
 | 4 | 以上皆无 | 资产名称首字（兜底） |
@@ -168,11 +267,15 @@ MobileScanner(
 class SmartAssetAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // 优先级 1: 本地图片
+    // 优先级 1: 本地图片（文件不存在时静默降级到下一级）
     if (asset.avatarPath != null && asset.avatarPath!.isNotEmpty) {
-      return ClipOval(
-        child: Image.file(File(asset.avatarPath!), fit: BoxFit.cover),
-      );
+      final file = File(asset.avatarPath!);
+      if (file.existsSync()) {
+        return ClipOval(
+          child: Image.file(file, fit: BoxFit.cover),
+        );
+      }
+      // 文件不存在时静默降级，继续检查下一级
     }
 
     // 优先级 2: Material 图标
@@ -197,6 +300,19 @@ class SmartAssetAvatar extends StatelessWidget {
         child: Text(displayText),
       ),
     );
+  }
+  
+  /// 静态方法：获取头像显示文字
+  static String getDisplayText(Asset asset) {
+    if (asset.avatarText != null && asset.avatarText!.isNotEmpty) {
+      return asset.avatarText![0];
+    }
+    return asset.assetName.isNotEmpty ? asset.assetName[0] : '?';
+  }
+  
+  /// 静态方法：获取头像背景色
+  static Color getBgColor(Asset asset) {
+    return Color(asset.avatarBgColor ?? 0xFF6C5CE7);
   }
 }
 ```
