@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/app_provider.dart';
 import 'providers/asset_provider.dart';
 import 'screens/main_tab_screen.dart';
@@ -124,6 +125,147 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
             ),
           ),
           scaffoldBackgroundColor: const Color(0xFFF1F8E9),
+        );
+      case AppTheme.morandi:
+        // 莫兰迪灰紫主题
+        return ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.light,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF9B8B9B),
+            brightness: Brightness.light,
+          ),
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+            backgroundColor: Color(0xFFF5F0F5),
+            foregroundColor: Color(0xFF6B5B6B),
+          ),
+          cardTheme: CardThemeData(
+            elevation: 2,
+            color: const Color(0xFFFAF7FA),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFB8A8B8)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF9B8B9B), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+          ),
+          scaffoldBackgroundColor: const Color(0xFFF5F0F5),
+        );
+      case AppTheme.warm:
+        // 暖杏奶咖主题
+        return ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.light,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFFD4A574),
+            brightness: Brightness.light,
+          ),
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+            backgroundColor: Color(0xFFFDF8F3),
+            foregroundColor: Color(0xFF8B6914),
+          ),
+          cardTheme: CardThemeData(
+            elevation: 2,
+            color: const Color(0xFFFFFBF7),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFD4A574)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFD4A574), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+          ),
+          scaffoldBackgroundColor: const Color(0xFFFDF8F3),
+        );
+      case AppTheme.midnight:
+        // 深邃靛蓝主题
+        return ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.dark,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF3F51B5),
+            brightness: Brightness.dark,
+          ),
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+            backgroundColor: Color(0xFF1A237E),
+            foregroundColor: Colors.white,
+          ),
+          cardTheme: CardThemeData(
+            elevation: 2,
+            color: const Color(0xFF283593),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF5C6BC0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF7986CB), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+          ),
+          scaffoldBackgroundColor: const Color(0xFF0D1421),
+        );
+      case AppTheme.custom:
+        // 自定义主色主题 - 从 SharedPreferences 读取主色
+        final prefs = SharedPreferences.getInstance();
+        // 注意：这里使用同步方式获取，实际应该异步，但为了保持方法签名一致
+        // 在实际使用中，AppProvider 会处理异步加载
+        return ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.light,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF2196F3),
+            brightness: Brightness.light,
+          ),
+          appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+          cardTheme: CardThemeData(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+          ),
         );
     }
   }

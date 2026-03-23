@@ -5,9 +5,11 @@ import 'package:gal/gal.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
+import '../utils/time_formatter.dart';
 import '../widgets/smart_asset_avatar.dart';
 import 'add_edit_asset_screen.dart';
 
@@ -292,14 +294,54 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               value: _getStatusName(asset.status),
               valueColor: _getStatusColor(asset.status),
             ),
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.timelapse,
-              label: '预计使用',
-              value: asset.expectedLifespanDays != null
-                  ? '${asset.expectedLifespanDays} 天'
-                  : '未设置',
-            ),
+            // 订阅资产：显示续费相关信息
+            if (asset.isSubscription) ...[
+              const Divider(height: 24),
+              _buildDetailRow(
+                icon: Icons.event_available,
+                label: '当前到期日',
+                value: asset.currentExpireDate != null
+                    ? _formatTimestamp(asset.currentExpireDate)
+                    : '未设置',
+              ),
+              const Divider(height: 24),
+              _buildDetailRow(
+                icon: Icons.timer,
+                label: '剩余天数',
+                value: asset.renewals.isNotEmpty
+                    ? '${asset.subscriptionRemainingDays} 天'
+                    : '无续费记录',
+              ),
+              const Divider(height: 24),
+              _buildDetailRow(
+                icon: Icons.attach_money,
+                label: '总续费金额',
+                value: '¥${asset.totalRenewalCost.toStringAsFixed(2)}',
+              ),
+              const Divider(height: 24),
+              _buildDetailRow(
+                icon: Icons.history,
+                label: '续费记录',
+                value: '${asset.renewals.length} 条',
+              ),
+            ] else ...[
+              // 买断资产：显示预计使用天数
+              const Divider(height: 24),
+              FutureBuilder<String>(
+                future: _getFormattedDays(asset.expectedLifespanDays),
+                builder: (context, snapshot) {
+                  return _buildDetailRow(
+                    icon: Icons.timelapse,
+                    label: '预计使用',
+                    value:
+                        snapshot.data ??
+                        (asset.expectedLifespanDays != null
+                            ? '${asset.expectedLifespanDays} 天'
+                            : '未设置'),
+                  );
+                },
+              ),
+            ],
             const Divider(height: 24),
             _buildDetailRow(
               icon: Icons.event,
@@ -492,6 +534,14 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     if (timestamp == null) return '-';
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// 获取格式化的天数
+  Future<String> _getFormattedDays(int? days) async {
+    if (days == null) return Future.value('');
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString('time_display_mode') ?? 'auto';
+    return TimeFormatter.formatDays(days, mode: mode);
   }
 
   // ========== V2.1: 分享功能 ==========

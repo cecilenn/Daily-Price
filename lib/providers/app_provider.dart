@@ -6,6 +6,10 @@ enum AppTheme {
   dark, // 默认暗黑
   light, // 极简留白
   green, // 复古护眼
+  morandi, // 莫兰迪灰紫
+  warm, // 暖杏奶咖
+  midnight, // 深邃靛蓝
+  custom, // 自定义主色
 }
 
 /// 日期显示格式枚举
@@ -62,6 +66,12 @@ class AppProvider with ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('dateFormatStyle', newStyle.name);
+  }
+
+  /// 获取时长显示模式
+  Future<String> getTimeDisplayMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('time_display_mode') ?? 'auto';
   }
 
   /// 更新云端同步时间

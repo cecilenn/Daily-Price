@@ -1,6 +1,51 @@
 import 'dart:convert';
 import 'package:intl/intl.dart';
 
+/// 续费记录
+class RenewalRecord {
+  final String id;
+  final int renewalDate; // 续费日期时间戳（毫秒）
+  final double price; // 本次续费金额
+  final int durationDays; // 本次订阅天数
+
+  const RenewalRecord({
+    required this.id,
+    required this.renewalDate,
+    required this.price,
+    required this.durationDays,
+  });
+
+  /// 本次到期日
+  int get expireDate =>
+      renewalDate + Duration(days: durationDays).inMilliseconds;
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'renewal_date': renewalDate,
+    'price': price,
+    'duration_days': durationDays,
+  };
+
+  factory RenewalRecord.fromMap(Map<String, dynamic> map) => RenewalRecord(
+    id: map['id'] as String,
+    renewalDate: map['renewal_date'] as int,
+    price: (map['price'] as num).toDouble(),
+    durationDays: map['duration_days'] as int,
+  );
+
+  RenewalRecord copyWith({
+    String? id,
+    int? renewalDate,
+    double? price,
+    int? durationDays,
+  }) => RenewalRecord(
+    id: id ?? this.id,
+    renewalDate: renewalDate ?? this.renewalDate,
+    price: price ?? this.price,
+    durationDays: durationDays ?? this.durationDays,
+  );
+}
+
 /// 资产模型 V2.0 - 用于记录个人资产折旧与价值平摊
 ///
 /// ## 字段说明
@@ -82,13 +127,19 @@ class Asset {
   /// 不计入日均 (0 或 1，默认 0)
   int excludeFromDaily;
 
+  /// 所有权类型：'buyout'（买断）或 'subscription'（订阅）
+  final String ownershipType;
+
+  /// 续费记录列表
+  final List<RenewalRecord> renewals;
+
   Asset({
     required this.id,
     required this.assetName,
     this.purchasePrice,
     required this.purchaseDate,
     this.isPinned = 0,
-    this.category = 'physical',
+    this.category = '未分类',
     this.tags = const [],
     required this.createdAt,
     this.status = 0,
@@ -102,6 +153,8 @@ class Asset {
     this.avatarIconCodePoint,
     this.excludeFromTotal = 0,
     this.excludeFromDaily = 0,
+    this.ownershipType = 'buyout',
+    this.renewals = const [],
   });
 
   /// 创建 Asset 的便捷工厂方法
@@ -111,7 +164,7 @@ class Asset {
     double? purchasePrice,
     required int purchaseDate,
     int isPinned = 0,
-    String category = 'physical',
+    String category = '未分类',
     List<String>? tags,
     int? createdAt,
     int status = 0,
@@ -125,6 +178,8 @@ class Asset {
     int? avatarIconCodePoint,
     int excludeFromTotal = 0,
     int excludeFromDaily = 0,
+    String ownershipType = 'buyout',
+    List<RenewalRecord>? renewals,
   }) {
     return Asset(
       id: id ?? '',
@@ -146,6 +201,8 @@ class Asset {
       avatarIconCodePoint: avatarIconCodePoint,
       excludeFromTotal: excludeFromTotal,
       excludeFromDaily: excludeFromDaily,
+      ownershipType: ownershipType,
+      renewals: renewals ?? const [],
     );
   }
 
@@ -154,6 +211,30 @@ class Asset {
 
   /// 是否服役中
   bool get isActive => status == 0;
+
+  /// 是否订阅资产
+  bool get isSubscription => ownershipType == 'subscription';
+
+  /// 订阅资产的当前到期日（最后一次续费的到期日）
+  int? get currentExpireDate {
+    if (renewals.isEmpty) return null;
+    return renewals.last.expireDate;
+  }
+
+  /// 订阅资产的剩余天数
+  int get subscriptionRemainingDays {
+    if (renewals.isEmpty) return 0;
+    final expire = currentExpireDate!;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return ((expire - now) ~/ Duration.millisecondsPerDay).clamp(0, 99999);
+  }
+
+  /// 订阅资产的总续费金额
+  double get totalRenewalCost => renewals.fold(0.0, (sum, r) => sum + r.price);
+
+  /// 订阅资产的总实际订阅天数
+  int get totalSubscribedDays =>
+      renewals.fold(0, (sum, r) => sum + r.durationDays);
 
   /// 计算实际/冻结天数
   /// - 状态 1(退役) 或 2(卖出) 时，时间永久冻结在 soldDate
@@ -179,25 +260,33 @@ class Asset {
   /// - 服役中且未超期：按预期寿命计算固定日均
   /// - 其他情况：按实际/冻结天数计算
   double get dailyCost {
-    // 基础成本：如果已卖出且有回血价，则成本 = 买入价 - 卖出价
     double cost = purchasePrice ?? 0;
+
+    // 订阅资产：用续费记录计算
+    if (isSubscription && renewals.isNotEmpty) {
+      cost = totalRenewalCost;
+      final days = totalSubscribedDays;
+      if (days > 0) return cost / days;
+      return 0;
+    }
+
+    // 卖出回血
     if (status == 2 && soldPrice != null) {
       cost = (purchasePrice ?? 0) - soldPrice!;
     }
 
     final daysUsed = calculatedDays;
 
-    // 核心逻辑：如果是服役中 (status == 0)，且设定了预计使用天数
+    // 服役中按预期寿命
     if (status == 0 &&
         expectedLifespanDays != null &&
         expectedLifespanDays! > 0) {
       if (daysUsed < expectedLifespanDays!) {
-        // 未超出预期寿命：按预期寿命计算固定日均
         return cost / expectedLifespanDays!;
       }
     }
 
-    // 其他情况：已退役、已卖出、未设预期寿命、或服役已超期，均按实际/冻结天数计算
+    if (daysUsed <= 0) return cost;
     return cost / daysUsed;
   }
 
@@ -270,6 +359,8 @@ class Asset {
       'avatar_icon_code_point': avatarIconCodePoint,
       'exclude_from_total': excludeFromTotal,
       'exclude_from_daily': excludeFromDaily,
+      'ownership_type': ownershipType,
+      'renewals': jsonEncode(renewals.map((r) => r.toMap()).toList()),
     };
   }
 
@@ -284,7 +375,7 @@ class Asset {
           : null,
       purchaseDate: map['purchase_date'] as int,
       isPinned: (map['is_pinned'] as int?) ?? 0,
-      category: map['category'] as String? ?? 'physical',
+      category: map['category'] as String? ?? '未分类',
       tags: _decodeTags(map['tags']),
       createdAt: map['created_at'] as int,
       status: (map['status'] as int?) ?? 0,
@@ -300,6 +391,8 @@ class Asset {
       avatarIconCodePoint: map['avatar_icon_code_point'] as int?,
       excludeFromTotal: (map['exclude_from_total'] as int?) ?? 0,
       excludeFromDaily: (map['exclude_from_daily'] as int?) ?? 0,
+      ownershipType: map['ownership_type'] as String? ?? 'buyout',
+      renewals: _decodeRenewals(map['renewals'] as String?),
     );
   }
 
@@ -318,6 +411,19 @@ class Asset {
       }
     }
     return [];
+  }
+
+  /// 解码续费记录
+  static List<RenewalRecord> _decodeRenewals(String? json) {
+    if (json == null || json.isEmpty) return [];
+    try {
+      final list = jsonDecode(json) as List;
+      return list
+          .map((e) => RenewalRecord.fromMap(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   /// 复制并修改
@@ -341,6 +447,8 @@ class Asset {
     int? avatarIconCodePoint,
     int? excludeFromTotal,
     int? excludeFromDaily,
+    String? ownershipType,
+    List<RenewalRecord>? renewals,
   }) {
     return Asset(
       id: id ?? this.id,
@@ -362,6 +470,8 @@ class Asset {
       avatarIconCodePoint: avatarIconCodePoint ?? this.avatarIconCodePoint,
       excludeFromTotal: excludeFromTotal ?? this.excludeFromTotal,
       excludeFromDaily: excludeFromDaily ?? this.excludeFromDaily,
+      ownershipType: ownershipType ?? this.ownershipType,
+      renewals: renewals ?? this.renewals,
     );
   }
 

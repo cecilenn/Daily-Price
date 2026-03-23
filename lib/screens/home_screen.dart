@@ -1,15 +1,22 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
 import '../models/asset.dart';
+import '../providers/app_provider.dart';
 import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
 import '../services/asset_filter_sorter.dart';
 import '../utils/stats_calculator.dart';
+import '../utils/time_formatter.dart';
 import '../widgets/smart_asset_avatar.dart';
 import 'asset_detail_screen.dart';
 import 'add_edit_asset_screen.dart';
@@ -59,6 +66,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // 自定义分栏列表
   List<String> _customTabs = [];
 
+  // 自定义分类列表
+  List<String> _customCategories = ['未分类'];
+
   // 计算当前激活的筛选条件数
   int get _activeFilterCount {
     int count = 0;
@@ -86,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initData() async {
     await _loadPreferences();
     await _loadCustomTabs();
+    await _loadCustomCategories();
     // 资产数据由 AssetProvider 管理，不需要在这里加载
   }
 
@@ -94,7 +105,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     final savedCategory = prefs.getString(_prefKeyCategory);
     final defaultStartupCategory = prefs.getString(_defaultStartupCategoryKey);
-    final category = savedCategory ?? defaultStartupCategory ?? 'all';
+
+    // 如果有保存的分类，使用保存的；否则使用默认启动分类
+    String category;
+    if (savedCategory != null) {
+      category = savedCategory;
+    } else if (defaultStartupCategory != null &&
+        defaultStartupCategory.isNotEmpty) {
+      category = defaultStartupCategory;
+    } else {
+      category = 'all';
+    }
+
     final sortBy = prefs.getString(_prefKeySortBy) ?? 'created_at';
     final sortAscending = prefs.getBool(_prefKeySortAscending) ?? false;
 
@@ -133,6 +155,20 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _customTabs = prefs.getStringList(_customTabsPrefKey) ?? [];
     });
+  }
+
+  /// 加载自定义分类列表
+  Future<void> _loadCustomCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _customCategories = prefs.getStringList('custom_categories') ?? ['未分类'];
+    });
+  }
+
+  /// 获取时长显示模式
+  Future<String> _getTimeDisplayMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('time_display_mode') ?? 'auto';
   }
 
   // 资产数据由 AssetProvider 管理，不再需要 _loadAssets 方法
@@ -209,9 +245,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 格式化天数
-  String _formatDays(int? days) {
+  Future<String> _formatDays(int? days) async {
     if (days == null) return '-';
-    return Asset.formatDays(days, style: 'combined');
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString('time_display_mode') ?? 'auto';
+    return TimeFormatter.formatDays(days, mode: mode);
   }
 
   /// 格式化日期戳为字符串
@@ -221,25 +259,22 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
+  /// 格式化时间戳为 yyyy-MM-dd 格式（CSV 导出专用）
+  String _formatTimestamp(int? timestamp) {
+    if (timestamp == null) return '';
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
   // 资产数据由 AssetProvider 管理，不再需要本地计算方法
 
   /// 获取分栏显示名称
   String _getCategoryLabel(String value) {
-    switch (value) {
-      case 'pinned':
-        return '置顶';
-      case 'physical':
-        return '实体资产';
-      case 'virtual':
-        return '虚拟资产';
-      case 'subscription':
-        return '限时资产';
-      default:
-        if (value.startsWith('custom_')) {
-          return value.substring(7);
-        }
-        return '全部';
+    if (value == 'all') {
+      return '全部';
     }
+    // 直接返回分类名称（因为现在是自定义分类）
+    return value;
   }
 
   /// 获取排序字段显示名称
@@ -296,133 +331,130 @@ class _HomeScreenState extends State<HomeScreen> {
               onRefresh: () async => await provider.loadAssets(),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    // V2.0 新增：顶部数据统计卡片（固定在顶部）
-                    if (!_isMultiSelectMode) ...[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-                        child: _buildStatsCard(stats),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    // 资产列表标题（固定在统计卡片下方）
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: provider.isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : provider.error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 40,
+                                color: Colors.red.shade300,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                provider.error!,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                              const SizedBox(height: 10),
+                              ElevatedButton.icon(
+                                onPressed: () async =>
+                                    await provider.loadAssets(),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('重试'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : filteredAssets.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.inbox_outlined,
+                                size: 40,
+                                color: Colors.grey.shade300,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                provider.assets.isEmpty ? '暂无资产数据' : '当前分栏暂无资产',
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                provider.assets.isEmpty
+                                    ? '点击右上角 + 添加您的第一个资产'
+                                    : '切换其他分栏查看或添加新资产',
+                                style: TextStyle(
+                                  color: Colors.grey.shade400,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.only(
+                          bottom: _isMultiSelectMode ? 80 : 120,
+                          left: 4,
+                          right: 4,
+                          top: 4,
+                        ),
                         children: [
-                          Text(
-                            _isMultiSelectMode
-                                ? '已选 ${_selectedAssetIds.length} 项'
-                                : _getCategoryLabel(_currentCategory),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                          // V2.0 新增：顶部数据统计卡片（可随内容滚动）
+                          if (!_isMultiSelectMode) ...[
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                              child: _buildStatsCard(stats),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          // 资产列表标题
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  _isMultiSelectMode
+                                      ? '已选 ${_selectedAssetIds.length} 项'
+                                      : _getCategoryLabel(_currentCategory),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '共 ${filteredAssets.length} 项',
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Text(
-                            '共 ${filteredAssets.length} 项',
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 13,
-                            ),
+                          const SizedBox(height: 8),
+                          // 资产网格（嵌入到 ListView 中）
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  childAspectRatio: 1.2,
+                                  crossAxisSpacing: 10,
+                                  mainAxisSpacing: 10,
+                                ),
+                            itemCount: filteredAssets.length,
+                            itemBuilder: (context, index) =>
+                                _buildAssetCard(filteredAssets[index]),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    // 资产列表（可滚动）
-                    Expanded(
-                      child: provider.isLoading
-                          ? const Center(child: CircularProgressIndicator())
-                          : provider.error != null
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.error_outline,
-                                      size: 40,
-                                      color: Colors.red.shade300,
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      provider.error!,
-                                      style: const TextStyle(color: Colors.red),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    ElevatedButton.icon(
-                                      onPressed: () async =>
-                                          await provider.loadAssets(),
-                                      icon: const Icon(Icons.refresh),
-                                      label: const Text('重试'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : filteredAssets.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.inbox_outlined,
-                                      size: 40,
-                                      color: Colors.grey.shade300,
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      provider.assets.isEmpty
-                                          ? '暂无资产数据'
-                                          : '当前分栏暂无资产',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade600,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      provider.assets.isEmpty
-                                          ? '点击右上角 + 添加您的第一个资产'
-                                          : '切换其他分栏查看或添加新资产',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade400,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : GridView.builder(
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    childAspectRatio: 1.2,
-                                    crossAxisSpacing: 10,
-                                    mainAxisSpacing: 10,
-                                  ),
-                              padding: EdgeInsets.only(
-                                bottom: _isMultiSelectMode ? 80 : 120,
-                                left: 4,
-                                right: 4,
-                                top: 4,
-                              ),
-                              itemCount: filteredAssets.length,
-                              itemBuilder: (context, index) =>
-                                  _buildAssetCard(filteredAssets[index]),
-                            ),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),
@@ -936,39 +968,16 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.folder_outlined),
-            tooltip: '分栏',
+            tooltip: '分类',
             onSelected: (value) => _saveCategory(value),
             itemBuilder: (context) {
               final items = <PopupMenuEntry<String>>[
                 const PopupMenuItem(value: 'all', child: Text('全部')),
-                const PopupMenuItem(value: 'pinned', child: Text('置顶')),
-                const PopupMenuItem(value: 'physical', child: Text('实体资产')),
-                const PopupMenuItem(value: 'virtual', child: Text('虚拟资产')),
-                const PopupMenuItem(value: 'subscription', child: Text('限时资产')),
+                const PopupMenuDivider(),
+                ..._customCategories.map(
+                  (c) => PopupMenuItem(value: c, child: Text(c)),
+                ),
               ];
-              if (_customTabs.isNotEmpty) {
-                items.add(const PopupMenuDivider());
-                for (final tab in _customTabs) {
-                  items.add(
-                    PopupMenuItem(
-                      value: 'custom_$tab',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.label_outline, size: 18),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              tab,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-              }
               return items;
             },
           ),
@@ -1117,6 +1126,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? null
                   : _showBatchCategoryDialog,
             ),
+            _buildActionButton(
+              icon: Icons.ios_share,
+              label: '分享',
+              color: Colors.green,
+              onPressed: _selectedAssetIds.isEmpty ? null : _batchShareAssets,
+            ),
           ],
         ),
       ),
@@ -1190,10 +1205,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                         // 状态筛选
                         _buildStatusFilterSection(setSheetState),
-                        const Divider(),
-
-                        // 分类筛选
-                        _buildCategoryFilterSection(setSheetState),
                         const Divider(),
 
                         // 标签筛选
@@ -1339,87 +1350,40 @@ class _HomeScreenState extends State<HomeScreen> {
               label: const Text('全部'),
               selected: _statusFilter == null,
               onSelected: (selected) {
-                if (selected) setStateFn(() => _statusFilter = null);
+                if (selected) {
+                  setStateFn(() => _statusFilter = null);
+                  setState(() {});
+                }
               },
             ),
             ChoiceChip(
               label: const Text('服役中'),
               selected: _statusFilter == 0,
               onSelected: (selected) {
-                if (selected) setStateFn(() => _statusFilter = 0);
+                if (selected) {
+                  setStateFn(() => _statusFilter = 0);
+                  setState(() {});
+                }
               },
             ),
             ChoiceChip(
               label: const Text('已退役'),
               selected: _statusFilter == 1,
               onSelected: (selected) {
-                if (selected) setStateFn(() => _statusFilter = 1);
+                if (selected) {
+                  setStateFn(() => _statusFilter = 1);
+                  setState(() {});
+                }
               },
             ),
             ChoiceChip(
               label: const Text('已卖出'),
               selected: _statusFilter == 2,
               onSelected: (selected) {
-                if (selected) setStateFn(() => _statusFilter = 2);
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  /// 构建分类筛选部分
-  Widget _buildCategoryFilterSection(void Function(VoidCallback) setStateFn) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '分类筛选',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilterChip(
-              label: const Text('实体资产'),
-              selected: _selectedCategories.contains('physical'),
-              onSelected: (selected) {
-                setStateFn(() {
-                  if (selected) {
-                    _selectedCategories.add('physical');
-                  } else {
-                    _selectedCategories.remove('physical');
-                  }
-                });
-              },
-            ),
-            FilterChip(
-              label: const Text('虚拟资产'),
-              selected: _selectedCategories.contains('virtual'),
-              onSelected: (selected) {
-                setStateFn(() {
-                  if (selected) {
-                    _selectedCategories.add('virtual');
-                  } else {
-                    _selectedCategories.remove('virtual');
-                  }
-                });
-              },
-            ),
-            FilterChip(
-              label: const Text('限时资产'),
-              selected: _selectedCategories.contains('subscription'),
-              onSelected: (selected) {
-                setStateFn(() {
-                  if (selected) {
-                    _selectedCategories.add('subscription');
-                  } else {
-                    _selectedCategories.remove('subscription');
-                  }
-                });
+                if (selected) {
+                  setStateFn(() => _statusFilter = 2);
+                  setState(() {});
+                }
               },
             ),
           ],
@@ -1454,6 +1418,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _selectedTags.remove(tag);
                   }
                 });
+                setState(() {});
               },
             );
           }).toList(),
@@ -1521,27 +1486,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 setStateFn(() {
                   _priceRange = values;
                 });
+                setState(() {});
               },
             ),
           ],
         );
       },
     );
-  }
-
-  /// 重置筛选条件
-  void _resetFilters() {
-    setState(() {
-      _searchQuery = '';
-      _searchController.clear();
-      _statusFilter = null;
-      _selectedCategories.clear();
-      _selectedTags.clear();
-      _priceRange = null;
-      _sortBy = 'created_at';
-      _sortAscending = false;
-    });
-    _saveSortSettings('created_at', false);
   }
 
   /// 显示批量删除确认对话框
@@ -1693,29 +1644,17 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('选择分类'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('实体资产'),
-              onTap: () {
-                Navigator.pop(context);
-                _batchUpdateCategory('physical');
-              },
-            ),
-            ListTile(
-              title: const Text('虚拟资产'),
-              onTap: () {
-                Navigator.pop(context);
-                _batchUpdateCategory('virtual');
-              },
-            ),
-            ListTile(
-              title: const Text('限时资产'),
-              onTap: () {
-                Navigator.pop(context);
-                _batchUpdateCategory('subscription');
-              },
-            ),
-          ],
+          children: _customCategories
+              .map(
+                (category) => ListTile(
+                  title: Text(category),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _batchUpdateCategory(category);
+                  },
+                ),
+              )
+              .toList(),
         ),
       ),
     );
@@ -1747,6 +1686,117 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.orange,
         ),
       );
+    }
+  }
+
+  /// 批量分享资产
+  Future<void> _batchShareAssets() async {
+    final provider = context.read<AssetProvider>();
+    final selectedAssets = provider.assets
+        .where((a) => _selectedAssetIds.contains(a.id))
+        .toList();
+
+    if (selectedAssets.isEmpty) return;
+
+    // 构建 CSV（与 SettingsScreen 格式一致）
+    final csvData = <List<dynamic>>[
+      [
+        'id',
+        'asset_name',
+        'purchase_price',
+        'expected_lifespan_days',
+        'purchase_date',
+        'is_pinned',
+        'status',
+        'sold_price',
+        'sold_date',
+        'category',
+        'expire_date',
+        'tags',
+        'created_at',
+      ],
+    ];
+
+    for (final asset in selectedAssets) {
+      csvData.add([
+        asset.id,
+        asset.assetName,
+        asset.purchasePrice ?? '',
+        asset.expectedLifespanDays ?? '',
+        _formatTimestamp(asset.purchaseDate),
+        asset.isPinned == 1 ? 'true' : 'false',
+        asset.status,
+        asset.soldPrice ?? '',
+        _formatTimestamp(asset.soldDate),
+        asset.category,
+        _formatTimestamp(asset.expireDate),
+        asset.tags.join(';'),
+        _formatTimestamp(asset.createdAt),
+      ]);
+    }
+
+    final csvString = const ListToCsvConverter().convert(csvData);
+
+    final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final defaultFileName = 'daily_price_selected_$timestamp.csv';
+
+    try {
+      if (kIsWeb) {
+        // Web 平台暂不支持批量导出
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Web 平台暂不支持批量导出'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      // 使用 FilePicker 保存文件
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: '保存 CSV 文件',
+        fileName: defaultFileName,
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        bytes: Uint8List.fromList(utf8.encode(csvString)),
+      );
+
+      if (savePath == null) {
+        // 用户取消保存
+        return;
+      }
+
+      if (savePath.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已保存到：$savePath'),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          // 保存完成后退出多选模式
+          _setMultiSelectMode(false);
+          setState(() {
+            _selectedAssetIds.clear();
+          });
+        }
+      }
+    } on PlatformException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败：${e.code} - ${e.message}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败：$e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 }

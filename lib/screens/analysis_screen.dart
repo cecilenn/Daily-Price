@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/asset_provider.dart';
+import '../utils/time_formatter.dart';
 
 /// 分析页面 - 展示资产统计与分析
 class AnalysisScreen extends StatefulWidget {
@@ -20,9 +22,11 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   }
 
   /// 格式化天数
-  String _formatDays(int? days) {
+  Future<String> _formatDays(int? days) async {
     if (days == null) return '-';
-    return Asset.formatDays(days, style: 'combined');
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString('time_display_mode') ?? 'auto';
+    return TimeFormatter.formatDays(days, mode: mode);
   }
 
   @override
@@ -66,7 +70,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -486,11 +490,16 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
             _buildOverviewRow('日均总消耗', _formatCurrency(dailyCost)),
             _buildOverviewRow('平均每件', _formatCurrency(avgPerItem)),
             _buildOverviewRow('最贵资产', mostExpensive?.assetName ?? '-'),
-            _buildOverviewRow(
-              '最长寿资产',
-              longestLiving != null
-                  ? '${longestLiving.assetName}（已用 ${_formatDays(longestLiving.calculatedDays)}）'
-                  : '-',
+            FutureBuilder<String>(
+              future: longestLiving != null
+                  ? _formatDays(longestLiving.calculatedDays)
+                  : Future.value('-'),
+              builder: (context, snapshot) {
+                final displayValue = longestLiving != null
+                    ? '${longestLiving.assetName}（已用 ${snapshot.data ?? '...'}）'
+                    : '-';
+                return _buildOverviewRow('最长寿资产', displayValue);
+              },
             ),
           ],
         ),

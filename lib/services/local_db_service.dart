@@ -35,7 +35,7 @@ class LocalDbService {
     // 打开数据库并创建表
     _db = await openDatabase(
       path,
-      version: 3,
+      version: 7,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -73,6 +73,34 @@ class LocalDbService {
     // V2 -> V3: 添加头像引擎字段 (avatar_bg_color, avatar_text, avatar_icon_code_point)
     if (oldVersion < 3) {
       await _addAvatarV3Fields(db);
+    }
+
+    // V5 -> V6: 自定义分类 + ownership_type 升级
+    if (oldVersion < 6) {
+      // 新增 ownership_type 列
+      await db.execute(
+        "ALTER TABLE assets ADD COLUMN ownership_type TEXT DEFAULT 'buyout'",
+      );
+
+      // 将 subscription 类别的资产设置 ownership_type 为 'subscription'
+      await db.execute(
+        "UPDATE assets SET ownership_type = 'subscription' WHERE category = 'subscription'",
+      );
+
+      // 将所有旧分类统一改为 '未分类'
+      await db.execute(
+        "UPDATE assets SET category = '未分类' WHERE category IN ('physical', 'virtual', 'subscription')",
+      );
+
+      log('========== [LocalDb] V6 自定义分类 + ownership_type 升级完成 ==========');
+    }
+
+    // V6 -> V7: 添加续费记录字段
+    if (oldVersion < 7) {
+      await db.execute(
+        "ALTER TABLE assets ADD COLUMN renewals TEXT DEFAULT '[]'",
+      );
+      log('========== [LocalDb] V7 续费记录字段升级完成 ==========');
     }
   }
 
