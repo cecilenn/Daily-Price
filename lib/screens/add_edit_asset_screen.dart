@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
+import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
 import '../utils/image_utils.dart';
 import '../widgets/smart_asset_avatar.dart';
@@ -475,7 +477,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
         avatarIconCodePoint: avatarIconCodePoint,
       );
 
-      await LocalDbService().saveAsset(newAsset);
+      await context.read<AssetProvider>().saveAsset(newAsset);
 
       if (mounted) {
         Navigator.pop(context, true); // 返回成功标志

@@ -154,6 +154,8 @@ class LocalDbService {
   Future<(int inserted, int updated)> importAssetsWithUpsert(
     List<Asset> parsedAssets,
   ) async {
+    if (parsedAssets.isEmpty) return (0, 0);
+
     int insertedCount = 0;
     int updatedCount = 0;
 
@@ -165,17 +167,23 @@ class LocalDbService {
       }
     }
 
+    // 性能优化：一次性批量查询所有导入资产的 ID
+    final allIds = parsedAssets.map((asset) => asset.id).toList();
+    final placeholders = List.filled(allIds.length, '?').join(',');
+    final existingMaps = await db.query(
+      'assets',
+      columns: ['id'],
+      where: 'id IN ($placeholders)',
+      whereArgs: allIds,
+    );
+
+    // 在内存中用 Set 判断哪些已存在
+    final existingIds = existingMaps.map((map) => map['id'] as String).toSet();
+
+    // 分别构建 insert 和 update 的 batch 操作
     final batch = db.batch();
     for (var importedAsset in parsedAssets) {
-      // 检查是否已存在
-      final existing = await db.query(
-        'assets',
-        where: 'id = ?',
-        whereArgs: [importedAsset.id],
-        limit: 1,
-      );
-
-      if (existing.isNotEmpty) {
+      if (existingIds.contains(importedAsset.id)) {
         // 更新现有记录
         batch.update(
           'assets',
@@ -190,6 +198,8 @@ class LocalDbService {
         insertedCount++;
       }
     }
+
+    // 统一 commit
     await batch.commit(noResult: true);
 
     return (insertedCount, updatedCount);

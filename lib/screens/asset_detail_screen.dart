@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
+import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
 import '../models/asset.dart';
+import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
 import '../widgets/smart_asset_avatar.dart';
 import 'add_edit_asset_screen.dart';
@@ -44,31 +46,18 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       ),
     );
 
-    // 如果编辑成功，刷新当前页面数据并传递刷新信号到主页
+    // 如果编辑成功，从 Provider 获取最新数据
     if (result == true && mounted) {
-      setState(() => _isRefreshing = true);
-      try {
-        // 从数据库重新加载最新数据
-        final assets = await LocalDbService().getAllAssets();
-        final updatedAsset = assets.firstWhere(
-          (a) => a.id == _currentAsset.id,
-          orElse: () => _currentAsset,
-        );
-        if (mounted) {
-          setState(() {
-            _currentAsset = updatedAsset;
-            _isRefreshing = false;
-          });
-        }
-        // 使用 Navigator.pop 返回 true 通知主页刷新
-        // 注意：这里不立即 pop，而是标记状态，在详情页关闭时传递信号
-        // 实际方案：编辑完成后直接返回主页并带刷新信号
-        if (mounted) {
-          Navigator.pop(context, true);
-        }
-      } catch (e) {
-        if (mounted) setState(() => _isRefreshing = false);
-      }
+      // Provider 已经更新了数据，直接从 Provider 取最新
+      final updatedAsset = context.read<AssetProvider>().assets.firstWhere(
+        (a) => a.id == _currentAsset.id,
+        orElse: () => _currentAsset,
+      );
+      setState(() {
+        _currentAsset = updatedAsset;
+      });
+      // 通知主页刷新（虽然 Provider 已自动通知，保留 pop(true) 兼容现有导航逻辑）
+      Navigator.pop(context, true);
     }
   }
 
@@ -200,8 +189,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   /// V2.1: 预览模式 - 将资产加入库存
   Future<void> _handleAddToInventory() async {
     try {
-      // 直接保存扫码获取的原始资产数据（包含原始 id）
-      await LocalDbService().saveAsset(_currentAsset);
+      // 通过 Provider 保存资产
+      await context.read<AssetProvider>().saveAsset(_currentAsset);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -663,8 +652,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
 
     if (confirmed == true) {
       try {
-        // 调用物理删除方法
-        await LocalDbService().deleteAssetWithFile(_currentAsset.id);
+        // 通过 Provider 删除资产
+        await context.read<AssetProvider>().deleteAsset(_currentAsset.id);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

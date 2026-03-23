@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 import '../models/asset.dart';
 import '../providers/app_provider.dart';
+import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -154,10 +155,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// 批量管理资产标签
   Future<void> _batchAddTagToAssets(String tagName) async {
-    final db = LocalDbService();
+    final provider = context.read<AssetProvider>();
     final customTagValue = 'custom_$tagName';
 
-    final assets = await db.getAllAssets();
+    final assets = provider.assets;
     final selectedIds = <String>{};
 
     for (final asset in assets) {
@@ -292,7 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       updatedTags.remove(customTagValue);
                     }
                     final updatedAsset = asset.copyWith(tags: updatedTags);
-                    await db.saveAsset(updatedAsset);
+                    await provider.saveAsset(updatedAsset);
                     updateCount++;
                   }
                 }
@@ -345,16 +346,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       await _saveCustomTabs(newTabs);
 
-      final db = LocalDbService();
-      final allAssets = await db.getAllAssets();
+      final provider = context.read<AssetProvider>();
       int cleanCount = 0;
 
-      for (final asset in allAssets) {
+      for (final asset in provider.assets) {
         if (asset.tags.contains(customTabValue)) {
-          final updatedTags = List<String>.from(asset.tags);
-          updatedTags.remove(customTabValue);
-          final updatedAsset = asset.copyWith(tags: updatedTags);
-          await db.saveAsset(updatedAsset);
+          final updatedTags = List<String>.from(asset.tags)
+            ..remove(customTabValue);
+          await provider.saveAsset(asset.copyWith(tags: updatedTags));
           cleanCount++;
         }
       }
@@ -813,8 +812,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
 
-      final (insertedCount, updatedCount) = await LocalDbService()
-          .importAssetsWithUpsert(assetsToImport);
+      final (insertedCount, updatedCount) = await context
+          .read<AssetProvider>()
+          .importAssets(assetsToImport);
 
       debugPrint('[导入] 导入完成：新增 $insertedCount 条，更新 $updatedCount 条');
 

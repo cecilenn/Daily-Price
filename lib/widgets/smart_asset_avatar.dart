@@ -37,12 +37,13 @@ class SmartAssetAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 优先级1：照片模式（如果 avatarPath 不为空且文件存在）
+    // 优先级1：照片模式（文件存在时才走这条路）
     if (asset.avatarPath != null && asset.avatarPath!.isNotEmpty) {
       final file = File(asset.avatarPath!);
-      // 异步检查文件是否存在需要 FutureBuilder，但这里简化处理
-      // 实际使用时文件通常已经确认存在
-      return _buildPhotoAvatar(file);
+      if (file.existsSync()) {
+        return _buildPhotoAvatar(file);
+      }
+      // 文件不存在，fall through 到下一级
     }
 
     // 优先级2：图标模式（如果 avatarIconCodePoint 不为空）
@@ -52,6 +53,25 @@ class SmartAssetAvatar extends StatelessWidget {
 
     // 优先级3：文字模式（默认）
     return _buildTextAvatar();
+  }
+
+  /// 静态方法：获取头像显示文字
+  static String getDisplayText(Asset asset) {
+    if (asset.avatarText != null && asset.avatarText!.isNotEmpty) {
+      return asset.avatarText!;
+    }
+    if (asset.assetName.isNotEmpty) {
+      return asset.assetName[0];
+    }
+    return '';
+  }
+
+  /// 静态方法：获取头像背景色
+  static Color getBgColor(
+    Asset asset, {
+    Color fallback = const Color(0xFFE0E0E0),
+  }) {
+    return asset.avatarBgColor != null ? Color(asset.avatarBgColor!) : fallback;
   }
 
   /// 构建照片头像（圆形裁剪）
@@ -122,23 +142,4 @@ class SmartAssetAvatar extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 便捷方法：获取头像显示文字
-String getAvatarDisplayText(Asset asset) {
-  if (asset.avatarText != null && asset.avatarText!.isNotEmpty) {
-    return asset.avatarText!;
-  }
-  if (asset.assetName.isNotEmpty) {
-    return asset.assetName[0];
-  }
-  return '';
-}
-
-/// 便捷方法：获取头像背景色
-Color getAvatarBgColor(
-  Asset asset, {
-  Color fallback = const Color(0xFFE0E0E0),
-}) {
-  return asset.avatarBgColor != null ? Color(asset.avatarBgColor!) : fallback;
 }
