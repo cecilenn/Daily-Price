@@ -22,24 +22,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  /// 将 AuthException 错误信息翻译为中文
-  String _translateAuthError(String message) {
-    if (message.contains('Invalid login credentials')) {
-      return '账号或密码错误';
-    } else if (message.contains('User already registered')) {
-      return '该邮箱已被注册，请直接登录';
-    } else if (message.contains('Email not confirmed')) {
-      return '邮箱未验证，请查收验证邮件';
-    } else if (message.contains('Password should be at least')) {
-      return '密码长度至少为6位';
-    } else if (message.contains('Unable to validate email address')) {
-      return '邮箱格式不正确';
-    } else if (message.contains('Signups not allowed')) {
-      return '注册功能已关闭';
-    }
-    return '操作失败，请重试';
-  }
-
   Future<void> _signIn() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       _showError('请输入邮箱和密码');

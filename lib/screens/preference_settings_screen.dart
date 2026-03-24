@@ -95,7 +95,6 @@ class _PreferenceSettingsScreenState extends State<PreferenceSettingsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: _timeModeOptions.map((option) {
-            final isSelected = _timeDisplayMode == option['value'];
             return RadioListTile<String>(
               title: Text(option['label']!),
               subtitle: Text(

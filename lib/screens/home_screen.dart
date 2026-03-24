@@ -798,8 +798,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
 
-          // 普通模式跳转到详情页，等待返回信号
-          final bool? shouldRefresh = await Navigator.push(
+          // 普通模式跳转到详情页
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => AssetDetailScreen(asset: existingAsset!),
@@ -810,7 +810,7 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         // ========== 分支 B：新发现 ==========
         // 预览模式跳转（显示「加入我的库存」按钮）
-        final isAdded = await Navigator.push<bool>(
+        await Navigator.push<bool>(
           context,
           MaterialPageRoute(
             builder: (_) =>
