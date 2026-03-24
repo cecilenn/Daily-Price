@@ -30,6 +30,24 @@ android {
         versionName = flutter.versionName
     }
 
+    base.archivesName = "cecilenn.dailyprice"
+
+    applicationVariants.all {
+        outputs.all {
+            if (this is com.android.build.gradle.internal.api.ApkVariantOutputImpl) {
+                val abi = this.getFilter(com.android.build.OutputFile.ABI) ?: "universal"
+                val shortAbi = when (abi) {
+                    "arm64-v8a" -> "v8a"
+                    "armeabi-v7a" -> "v7a"
+                    "x86_64" -> "x64"
+                    "x86" -> "x86"
+                    else -> abi
+                }
+                outputFileName = "cecilenn.dailyprice_${shortAbi}.apk"
+            }
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
