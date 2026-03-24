@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,15 +10,12 @@ import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import '../models/asset.dart';
-import '../providers/app_provider.dart';
 import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
 import '../services/asset_filter_sorter.dart';
 import '../utils/stats_calculator.dart';
-import '../utils/time_formatter.dart';
 import '../widgets/smart_asset_avatar.dart';
 import 'asset_detail_screen.dart';
-import 'add_edit_asset_screen.dart';
 import 'scanner_screen.dart';
 
 /// 首页 - 资产列表与管理页面（V2.0 重构版）
@@ -68,16 +64,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // 自定义分类列表
   List<String> _customCategories = ['未分类'];
-
-  // 计算当前激活的筛选条件数
-  int get _activeFilterCount {
-    int count = 0;
-    if (_statusFilter != null) count++;
-    if (_selectedCategories.isNotEmpty) count++;
-    if (_selectedTags.isNotEmpty) count++;
-    if (_priceRange != null) count++;
-    return count;
-  }
 
   // SharedPreferences 键名
   static const String _prefKeyCategory = 'home_current_category';
@@ -165,98 +151,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// 获取时长显示模式
-  Future<String> _getTimeDisplayMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('time_display_mode') ?? 'auto';
-  }
-
   // 资产数据由 AssetProvider 管理，不再需要 _loadAssets 方法
-
-  /// 切换置顶状态
-  Future<void> _togglePinned(Asset asset) async {
-    try {
-      await context.read<AssetProvider>().togglePinned(asset);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(asset.isPinned == 1 ? '已取消置顶' : '已置顶'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('操作失败：$e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  /// 删除资产
-  Future<void> _deleteAsset(Asset asset) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除'),
-        content: Text('确定要删除「${asset.assetName}」吗？此操作不可撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        await context.read<AssetProvider>().deleteAsset(asset.id);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('资产已删除'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('删除失败：$e'), backgroundColor: Colors.red),
-          );
-        }
-      }
-    }
-  }
 
   /// 格式化金额
   String _formatCurrency(double? amount) {
     if (amount == null) return '-';
     return '¥${amount.toStringAsFixed(2)}';
-  }
-
-  /// 格式化天数
-  Future<String> _formatDays(int? days) async {
-    if (days == null) return '-';
-    final prefs = await SharedPreferences.getInstance();
-    final mode = prefs.getString('time_display_mode') ?? 'auto';
-    return TimeFormatter.formatDays(days, mode: mode);
-  }
-
-  /// 格式化日期戳为字符串
-  String _formatDateFromTimestamp(int? timestamp) {
-    if (timestamp == null) return '-';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   /// 格式化时间戳为 yyyy-MM-dd 格式（CSV 导出专用）
@@ -275,21 +175,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     // 直接返回分类名称（因为现在是自定义分类）
     return value;
-  }
-
-  /// 获取排序字段显示名称
-  String _getSortByLabel(String value) {
-    switch (value) {
-      case 'name':
-        return '名称';
-      case 'purchase_date':
-        return '购买日期';
-      case 'price':
-        return '价格';
-      case 'created_at':
-      default:
-        return '添加日期';
-    }
   }
 
   @override
@@ -797,11 +682,6 @@ class _HomeScreenState extends State<HomeScreen> {
         radius: 24, // 48x48 的圆角矩形效果
       ),
     );
-  }
-
-  /// 构建头像 - V3.0 使用 SmartAssetAvatar
-  Widget _buildAvatar(Asset asset) {
-    return SmartAssetAvatar(asset: asset, radius: 24);
   }
 
   // 资产数据由 AssetProvider 管理，导航方法已移至 UI 层处理

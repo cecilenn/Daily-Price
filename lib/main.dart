@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/app_provider.dart';
 import 'providers/asset_provider.dart';
 import 'screens/main_tab_screen.dart';
@@ -32,7 +31,7 @@ class DailyPriceApp extends StatefulWidget {
 
 class _DailyPriceAppState extends State<DailyPriceApp> {
   /// 获取主题数据
-  ThemeData _getThemeData(AppTheme theme) {
+  ThemeData _getThemeData(AppTheme theme, AppProvider provider) {
     switch (theme) {
       case AppTheme.dark:
         return ThemeData(
@@ -241,15 +240,11 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
           scaffoldBackgroundColor: const Color(0xFF0D1421),
         );
       case AppTheme.custom:
-        // 自定义主色主题 - 从 SharedPreferences 读取主色
-        final prefs = SharedPreferences.getInstance();
-        // 注意：这里使用同步方式获取，实际应该异步，但为了保持方法签名一致
-        // 在实际使用中，AppProvider 会处理异步加载
         return ThemeData(
           useMaterial3: true,
           brightness: Brightness.light,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF2196F3),
+            seedColor: provider.customPrimaryColor,
             brightness: Brightness.light,
           ),
           appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
@@ -277,7 +272,7 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
         return MaterialApp(
           title: '个人资产管理',
           debugShowCheckedModeBanner: false,
-          theme: _getThemeData(appProvider.theme),
+          theme: _getThemeData(appProvider.theme, appProvider),
           home: const MainTabScreen(),
         );
       },

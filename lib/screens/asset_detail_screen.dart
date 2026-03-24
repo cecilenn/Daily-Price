@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:provider/provider.dart';
@@ -8,7 +7,6 @@ import 'package:screenshot/screenshot.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/asset_provider.dart';
-import '../services/local_db_service.dart';
 import '../utils/time_formatter.dart';
 import '../widgets/smart_asset_avatar.dart';
 import 'add_edit_asset_screen.dart';

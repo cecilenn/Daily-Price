@@ -1,12 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
 import '../providers/asset_provider.dart';
-import '../services/local_db_service.dart';
-import '../utils/image_utils.dart';
 import '../widgets/smart_asset_avatar.dart';
 import '../widgets/avatar_editor_sheet.dart';
 
@@ -48,9 +45,6 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
   List<String> _customTabs = [];
   List<String> _customCategories = ['未分类'];
   bool _isSaving = false;
-
-  // 用于存储临时编辑状态的头像数据
-  AvatarEditResult? _tempAvatarResult;
 
   @override
   void initState() {

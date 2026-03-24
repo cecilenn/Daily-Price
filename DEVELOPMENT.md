@@ -565,6 +565,22 @@ flutter build apk --release --no-tree-shake-icons
 - 使用 `const ListToCsvConverter()` 和 `const CsvToListConverter()`
 - 导入时使用 `importAssetsWithUpsert()` 实现按 UUID 查重合并
 
+### 自定义 APK 文件名
+
+项目根目录提供 `build_and_rename.sh` 脚本，打包后自动重命名 APK 和 SHA1 文件：
+
+```bash
+./build_and_rename.sh
+```
+
+输出文件命名：
+
+• `cecilenn.dailyprice_v8a.apk`（arm64）
+• `cecilenn.dailyprice_v7a.apk`（armeabi-v7a）
+• `cecilenn.dailyprice_x64.apk`（x86_64）
+
+脚本执行：`flutter clean` → `flutter pub get` → `flutter build apk` → rename。
+
 ---
 
 ## 测试指南

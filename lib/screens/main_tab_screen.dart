@@ -131,11 +131,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
   /// 构建导航项
   Widget _buildNavItem(int index, IconData icon, IconData selectedIcon) {
     final isSelected = _selectedIndex == index;
-    final colors = [
-      const Color(0xFF2196F3),
-      const Color(0xFF4CAF50),
-      const Color(0xFFFF9800),
-    ];
+    final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Expanded(
       child: InkWell(
@@ -148,7 +144,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
             children: [
               Icon(
                 isSelected ? selectedIcon : icon,
-                color: isSelected ? colors[index] : Colors.grey.shade600,
+                color: isSelected ? primaryColor : Colors.grey.shade600,
                 size: 24,
               ),
               const SizedBox(height: 4),
@@ -156,7 +152,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
                 _getNavItemLabel(index),
                 style: TextStyle(
                   fontSize: 11,
-                  color: isSelected ? colors[index] : Colors.grey.shade600,
+                  color: isSelected ? primaryColor : Colors.grey.shade600,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
@@ -183,15 +179,16 @@ class _MainTabScreenState extends State<MainTabScreen> {
 
   /// 构建添加按钮
   Widget _buildAddButton() {
+    final primaryColor = Theme.of(context).colorScheme.primary;
     return Container(
       width: 56,
       height: 56,
       decoration: BoxDecoration(
-        color: const Color(0xFF2196F3),
+        color: primaryColor,
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF2196F3).withValues(alpha: 0.4),
+            color: primaryColor.withValues(alpha: 0.4),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

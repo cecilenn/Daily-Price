@@ -230,11 +230,16 @@ class ThemeSettingsScreen extends StatelessWidget {
     BuildContext context,
     AppProvider appProvider,
   ) async {
-    Color pickerColor = Colors.blue;
+    // 读取当前已保存的自定义颜色，如果没有则用默认蓝
+    final prefs = await SharedPreferences.getInstance();
+    final savedColorValue = prefs.getInt('custom_primary_color');
+    Color pickerColor = savedColorValue != null
+        ? Color(savedColorValue)
+        : const Color(0xFF2196F3);
 
     await showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('选择主题颜色'),
           content: SingleChildScrollView(
@@ -248,17 +253,15 @@ class ThemeSettingsScreen extends StatelessWidget {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('取消'),
             ),
             ElevatedButton(
               onPressed: () async {
-                // 保存自定义颜色
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setInt('custom_primary_color', pickerColor.value);
-                await appProvider.setTheme(AppTheme.custom);
-                if (context.mounted) {
-                  Navigator.pop(context);
+                // 使用 AppProvider 的新方法统一处理
+                await appProvider.setCustomColor(pickerColor);
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
                 }
               },
               child: const Text('确定'),

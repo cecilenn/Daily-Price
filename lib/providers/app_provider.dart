@@ -24,11 +24,13 @@ class AppProvider with ChangeNotifier {
   DateFormatStyle _dateFormatStyle = DateFormatStyle.combined;
   DateTime? _lastSyncTime;
   final bool _isLoading = false;
+  Color _customPrimaryColor = const Color(0xFF2196F3);
 
   AppTheme get theme => _theme;
   DateFormatStyle get dateFormatStyle => _dateFormatStyle;
   DateTime? get lastSyncTime => _lastSyncTime;
   bool get isLoading => _isLoading;
+  Color get customPrimaryColor => _customPrimaryColor;
 
   AppProvider() {
     loadSettings();
@@ -49,6 +51,13 @@ class AppProvider with ChangeNotifier {
       (e) => e.name == prefs.getString('dateFormatStyle'),
       orElse: () => DateFormatStyle.combined,
     );
+
+    // 读取自定义颜色
+    final savedColor = prefs.getInt('custom_primary_color');
+    if (savedColor != null) {
+      _customPrimaryColor = Color(savedColor);
+    }
+
     notifyListeners();
   }
 
@@ -72,6 +81,16 @@ class AppProvider with ChangeNotifier {
   Future<String> getTimeDisplayMode() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('time_display_mode') ?? 'auto';
+  }
+
+  /// 设置自定义颜色
+  Future<void> setCustomColor(Color color) async {
+    _customPrimaryColor = color;
+    _theme = AppTheme.custom;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('custom_primary_color', color.value);
+    await prefs.setString('theme', AppTheme.custom.name);
   }
 
   /// 更新云端同步时间
