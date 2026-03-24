@@ -50,7 +50,7 @@ class LocalDbService {
         purchase_price REAL,
         purchase_date INTEGER NOT NULL,
         is_pinned INTEGER DEFAULT 0,
-        category TEXT DEFAULT 'physical',
+        category TEXT DEFAULT '未分类',
         tags TEXT DEFAULT '[]',
         created_at INTEGER NOT NULL,
         status INTEGER DEFAULT 0,
@@ -63,7 +63,9 @@ class LocalDbService {
         avatar_text TEXT,
         avatar_icon_code_point INTEGER,
         exclude_from_total INTEGER DEFAULT 0,
-        exclude_from_daily INTEGER DEFAULT 0
+        exclude_from_daily INTEGER DEFAULT 0,
+        ownership_type TEXT DEFAULT 'buyout',
+        renewals TEXT DEFAULT '[]'
       )
     ''');
   }
@@ -77,10 +79,16 @@ class LocalDbService {
 
     // V5 -> V6: 自定义分类 + ownership_type 升级
     if (oldVersion < 6) {
-      // 新增 ownership_type 列
-      await db.execute(
-        "ALTER TABLE assets ADD COLUMN ownership_type TEXT DEFAULT 'buyout'",
-      );
+      // 先检查列是否存在
+      final columns = await db.rawQuery('PRAGMA table_info(assets)');
+      final columnNames = columns.map((c) => c['name'] as String).toSet();
+
+      // 新增 ownership_type 列（如果不存在）
+      if (!columnNames.contains('ownership_type')) {
+        await db.execute(
+          "ALTER TABLE assets ADD COLUMN ownership_type TEXT DEFAULT 'buyout'",
+        );
+      }
 
       // 将 subscription 类别的资产设置 ownership_type 为 'subscription'
       await db.execute(
@@ -97,9 +105,16 @@ class LocalDbService {
 
     // V6 -> V7: 添加续费记录字段
     if (oldVersion < 7) {
-      await db.execute(
-        "ALTER TABLE assets ADD COLUMN renewals TEXT DEFAULT '[]'",
-      );
+      // 先检查列是否存在
+      final columns = await db.rawQuery('PRAGMA table_info(assets)');
+      final columnNames = columns.map((c) => c['name'] as String).toSet();
+
+      // 新增 renewals 列（如果不存在）
+      if (!columnNames.contains('renewals')) {
+        await db.execute(
+          "ALTER TABLE assets ADD COLUMN renewals TEXT DEFAULT '[]'",
+        );
+      }
       log('========== [LocalDb] V7 续费记录字段升级完成 ==========');
     }
   }
