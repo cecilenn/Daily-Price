@@ -59,7 +59,7 @@ class _PreferenceSettingsScreenState extends State<PreferenceSettingsScreen> {
     });
   }
 
-  /// 保存默认启动分栏设置
+  /// 保存默认启动分类设置
   Future<void> _saveDefaultCategory(String value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefKey, value);
@@ -134,7 +134,7 @@ class _PreferenceSettingsScreenState extends State<PreferenceSettingsScreen> {
             children: [
               _buildSectionHeader('启动设置'),
 
-              // 默认启动分栏
+              // 默认启动分类
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16.0,

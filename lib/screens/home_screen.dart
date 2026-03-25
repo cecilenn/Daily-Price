@@ -850,6 +850,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.folder_outlined),
             tooltip: '分类',
             onSelected: (value) => _saveCategory(value),
+            onOpened: () => _loadCustomCategories(),
             itemBuilder: (context) {
               final items = <PopupMenuEntry<String>>[
                 const PopupMenuItem(value: 'all', child: Text('全部')),
@@ -1044,6 +1045,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 显示筛选排序 BottomSheet
   void _showFilterSortSheet() {
+    _loadCustomTabs(); // 刷新标签数据
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1431,6 +1433,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 显示批量打标签 BottomSheet
   void _showBatchTagSheet() {
+    _loadCustomTabs(); // 刷新标签数据
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1518,6 +1521,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 显示批量改分类对话框
   void _showBatchCategoryDialog() {
+    _loadCustomCategories(); // 刷新分类数据
     showDialog(
       context: context,
       builder: (context) => AlertDialog(

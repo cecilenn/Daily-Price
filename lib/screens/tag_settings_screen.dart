@@ -23,7 +23,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
     _loadCustomTabs();
   }
 
-  /// 加载自定义分栏设置
+  /// 加载自定义标签设置
   Future<void> _loadCustomTabs() async {
     final prefs = await SharedPreferences.getInstance();
     final tabs = prefs.getStringList(_customTabsPrefKey) ?? [];
@@ -32,7 +32,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
     });
   }
 
-  /// 保存自定义分栏设置
+  /// 保存自定义标签设置
   Future<void> _saveCustomTabs(List<String> tabs) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_customTabsPrefKey, tabs);
@@ -41,19 +41,19 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
     });
   }
 
-  /// 添加自定义分栏
+  /// 添加自定义标签
   Future<void> _addCustomTab() async {
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('添加自定义分栏'),
+        title: const Text('添加自定义标签'),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 20,
           decoration: const InputDecoration(
-            hintText: '输入分栏名称，如"工作"、"闲置"',
+            hintText: '输入标签名称，如"工作"、"闲置"',
             border: OutlineInputBorder(),
           ),
         ),
@@ -86,22 +86,22 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
 
     if (result != null && result.isNotEmpty) {
       if (_customTabs.contains(result)) {
-        _showError('该分栏名称已存在');
+        _showError('该标签名称已存在');
         return;
       }
       final newTabs = [..._customTabs, result];
       await _saveCustomTabs(newTabs);
-      _showSuccess('已添加分栏"$result"');
+      _showSuccess('已添加标签"$result"');
     }
   }
 
-  /// 删除自定义分栏
+  /// 删除自定义标签
   Future<void> _removeCustomTab(String tab) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除'),
-        content: Text('确定要删除分栏"$tab"吗？\n该分栏标签将从所有资产中移除。'),
+        content: Text('确定要删除标签"$tab"吗？\n该标签将从所有资产中移除。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -146,9 +146,9 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
       );
 
       if (cleanCount > 0) {
-        _showSuccess('已删除分栏"$tab"，并从 $cleanCount 个资产中移除该标签');
+        _showSuccess('已删除标签"$tab"，并从 $cleanCount 个资产中移除该标签');
       } else {
-        _showSuccess('已删除分栏"$tab"');
+        _showSuccess('已删除标签"$tab"');
       }
     }
   }
@@ -351,7 +351,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
           constraints: const BoxConstraints(maxWidth: 600),
           child: ListView(
             children: [
-              _buildSectionHeader('自定义分栏'),
+              _buildSectionHeader('自定义标签'),
               if (_customTabs.isEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -359,7 +359,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
                     vertical: 8,
                   ),
                   child: Text(
-                    '暂无自定义分栏，点击下方按钮添加',
+                    '暂无自定义标签，点击下方按钮添加',
                     style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                   ),
                 )
@@ -404,7 +404,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.add, color: Colors.green),
                 title: const Text(
-                  '添加自定义分栏',
+                  '添加自定义标签',
                   style: TextStyle(color: Colors.green),
                 ),
                 onTap: _addCustomTab,

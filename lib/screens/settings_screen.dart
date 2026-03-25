@@ -65,7 +65,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.label_outline),
                 title: const Text('标签管理'),
-                subtitle: const Text('管理自定义分栏和标签'),
+                subtitle: const Text('管理自定义标签'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(
                   context,
@@ -113,7 +113,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('版本'),
-                subtitle: const Text('1.3.2'),
+                subtitle: const Text('1.4.1'),
               ),
               const Divider(height: 1),
 
