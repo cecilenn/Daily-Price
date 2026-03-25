@@ -134,106 +134,104 @@ class _LoginScreenState extends State<LoginScreen> {
         centerTitle: true,
       ),
       body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
         child: Center(
           child: ConstrainedBox(
             // 限制网页端宽度，防止输入框被无限拉伸
             constraints: const BoxConstraints(maxWidth: 400),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(
-                    Icons.account_balance_wallet,
-                    size: 48,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 24),
+                Icon(
+                  Icons.account_balance_wallet,
+                  size: 40,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Daily Price',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.primary,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Daily Price',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 32),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(
+                    labelText: '邮箱',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
                     ),
+                    border: OutlineInputBorder(),
                   ),
-                  const SizedBox(height: 48),
-                  TextFormField(
-                    controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: '邮箱',
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                      border: OutlineInputBorder(),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(
+                    labelText: '密码',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
                     ),
-                    keyboardType: TextInputType.emailAddress,
+                    border: OutlineInputBorder(),
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: '密码',
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                    obscureText: true,
-                    onFieldSubmitted: (_) =>
-                        _isRegisterMode ? _signUp() : _signIn(),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    height: 120,
-                    child: _isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              ElevatedButton(
-                                onPressed: _isRegisterMode ? _signUp : _signIn,
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
+                  obscureText: true,
+                  onFieldSubmitted: (_) =>
+                      _isRegisterMode ? _signUp() : _signIn(),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  height: 120,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ElevatedButton(
+                              onPressed: _isRegisterMode ? _signUp : _signIn,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
                                 ),
-                                child: Text(_isRegisterMode ? '注册新账号' : '登录'),
                               ),
-                              if (!_isRegisterMode) ...[
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: _isLoading
-                                        ? null
-                                        : _resetPassword,
-                                    child: const Text('忘记密码？'),
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 12),
-                              TextButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _isRegisterMode = !_isRegisterMode;
-                                  });
-                                },
-                                child: Text(
-                                  _isRegisterMode ? '已有账号？直接登录' : '没有账号？点击注册',
+                              child: Text(_isRegisterMode ? '注册新账号' : '登录'),
+                            ),
+                            if (!_isRegisterMode) ...[
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _isLoading ? null : _resetPassword,
+                                  child: const Text('忘记密码？'),
                                 ),
                               ),
                             ],
-                          ),
-                  ),
-                ],
-              ),
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _isRegisterMode = !_isRegisterMode;
+                                });
+                              },
+                              child: Text(
+                                _isRegisterMode ? '已有账号？直接登录' : '没有账号？点击注册',
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+                const SizedBox(height: 24),
+              ],
             ),
           ),
         ),
