@@ -68,6 +68,9 @@ dependencies:
   gal: ^2.3.2
   flutter_colorpicker: ^1.1.0
   fl_chart: ^0.69.0
+  
+  # Supabase 云端同步
+  supabase_flutter: ^2.0.0
 
 dev_dependencies:
   flutter_test:

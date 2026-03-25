@@ -10,9 +10,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/asset.dart';
 import '../providers/asset_provider.dart';
 import '../services/local_db_service.dart';
+import '../services/cloud_sync_service.dart';
+import 'login_screen.dart';
 
 class DataSettingsScreen extends StatefulWidget {
   const DataSettingsScreen({super.key});
@@ -532,6 +535,161 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
           constraints: const BoxConstraints(maxWidth: 600),
           child: ListView(
             children: [
+              // 云端同步卡片
+              Card(
+                margin: const EdgeInsets.all(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CloudSyncService.instance.isLoggedIn
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '☁️ 云端同步',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '账号：${CloudSyncService.instance.userEmail}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 同步到云端
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.cloud_upload),
+                              title: const Text('同步到云端'),
+                              subtitle: const Text('将本地数据覆盖到云端'),
+                              onTap: () async {
+                                final assets = await LocalDbService()
+                                    .getAllAssets();
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('同步到云端'),
+                                    content: Text(
+                                      '将本地 ${assets.length} 条资产上传到云端，覆盖云端数据？',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('取消'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text('确认'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  try {
+                                    final count = await CloudSyncService
+                                        .instance
+                                        .syncUp(assets);
+                                    _showSuccess('已上传 $count 条资产到云端');
+                                  } catch (e) {
+                                    _showError('上传失败：${e.toString()}');
+                                  }
+                                }
+                              },
+                            ),
+
+                            // 同步到本地
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.cloud_download),
+                              title: const Text('同步到本地'),
+                              subtitle: const Text('将云端数据覆盖到本地'),
+                              onTap: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('同步到本地'),
+                                    content: const Text('将云端数据下载到本地，覆盖本地所有资产？'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('取消'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text('确认'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  try {
+                                    final assets = await CloudSyncService
+                                        .instance
+                                        .syncDown();
+                                    final (
+                                      insertedCount,
+                                      updatedCount,
+                                    ) = await context
+                                        .read<AssetProvider>()
+                                        .importAssets(assets);
+                                    _showSuccess(
+                                      '同步完成：新增 $insertedCount 条，更新 $updatedCount 条',
+                                    );
+                                  } catch (e) {
+                                    _showError('同步失败：${e.toString()}');
+                                  }
+                                }
+                              },
+                            ),
+
+                            // 退出登录
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: () async {
+                                await Supabase.instance.client.auth.signOut();
+                                if (context.mounted) setState(() {});
+                              },
+                              child: const Text(
+                                '退出登录',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            Text(
+                              '☁️ 云端同步',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '登录后可将数据同步到云端备份',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.login),
+                              label: const Text('登录'),
+                              onPressed: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const LoginScreen(),
+                                  ),
+                                );
+                                // 登录回来后刷新页面
+                                if (mounted) setState(() {});
+                              },
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+
               _buildSectionHeader('数据备份'),
               ListTile(
                 leading: const Icon(Icons.upload_file),

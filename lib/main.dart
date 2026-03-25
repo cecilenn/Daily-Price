@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/app_provider.dart';
 import 'providers/asset_provider.dart';
 import 'screens/main_tab_screen.dart';
@@ -7,6 +8,12 @@ import 'services/local_db_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 初始化 Supabase
+  await Supabase.initialize(
+    url: 'https://yfkzdoputwygnfqwtrck.supabase.co',
+    anonKey: 'sb_publishable_btYCq4AdFM7jKC2l1ridDg_mQRE2ws5',
+  );
 
   // 初始化本地数据库
   await LocalDbService().init();
@@ -281,7 +288,6 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
 }
 
 /// 认证包装器 - 根据登录状态决定显示哪个页面
-/// TODO: 替换为 PocketBase 认证逻辑
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -290,10 +296,19 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
+  final _authStream = Supabase.instance.client.auth.onAuthStateChange;
+
   @override
   Widget build(BuildContext context) {
-    // TODO: 替换为 PocketBase 认证逻辑
-    // 暂时直接显示主标签页
-    return const MainTabScreen();
+    return StreamBuilder<AuthState>(
+      stream: _authStream,
+      builder: (context, snapshot) {
+        final session = Supabase.instance.client.auth.currentSession;
+        if (session != null) {
+          return const MainTabScreen();
+        }
+        return const MainTabScreen(); // 暂时仍显示主页面，后续需要导入 LoginScreen
+      },
+    );
   }
 }

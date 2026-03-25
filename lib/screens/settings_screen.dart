@@ -117,42 +117,6 @@ class SettingsScreen extends StatelessWidget {
               ),
               const Divider(height: 1),
 
-              const SizedBox(height: 16),
-
-              // 退出登录
-              ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text('退出登录', style: TextStyle(color: Colors.red)),
-                subtitle: const Text('退出当前账户'),
-                onTap: () async {
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('确认退出'),
-                      content: const Text('确定要退出登录吗？'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('取消'),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text(
-                            '退出',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-
-                  if (confirmed == true && context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                },
-              ),
-              const Divider(height: 1),
-
               const SizedBox(height: 48),
             ],
           ),

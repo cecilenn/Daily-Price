@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-// TODO: 替换为 PocketBase 认证
-// import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -31,14 +30,14 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // TODO: 替换为 PocketBase 登录方法
-      /*
       await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      */
-      _showError('登录功能暂未实现，请等待 PocketBase 集成');
+      // 登录成功后关闭页面返回
+      if (mounted) Navigator.pop(context);
+    } on AuthException catch (e) {
+      _showError(e.message);
     } catch (e) {
       _showError('登录失败，请重试');
     } finally {
@@ -56,40 +55,53 @@ class _LoginScreenState extends State<LoginScreen> {
       _showError('密码长度至少为6位');
       return;
     }
+    setState(() => _isLoading = true);
+
+    try {
+      await Supabase.instance.client.auth.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('注册成功，请前往邮箱验证后登录'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      setState(() => _isRegisterMode = false);
+    } on AuthException catch (e) {
+      _showError(e.message);
+    } catch (e) {
+      _showError('注册失败，请重试');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      _showError('请先输入邮箱地址');
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
-      // TODO: 替换为 PocketBase 注册方法
-      /*
-      final response = await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('重置密码的邮件已发送，请查收邮箱'),
+          backgroundColor: Colors.green,
+        ),
       );
-      
-      if (response.user != null && mounted) {
-        // 检查是否为假成功（Supabase 防枚举机制）
-        // 当 identities 为空列表时，说明该邮箱已被注册
-        if (response.user!.identities != null && response.user!.identities!.isEmpty) {
-          _showError('该邮箱已被注册，请直接登录');
-          return;
-        }
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('注册成功，请前往邮箱点击验证链接'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        // 注册成功后自动切换回登录模式
-        setState(() {
-          _isRegisterMode = false;
-        });
-      }
-      */
-      _showError('注册功能暂未实现，请等待 PocketBase 集成');
+    } on AuthException catch (e) {
+      _showError(e.message);
     } catch (e) {
-      _showError('注册失败，请重试');
+      _showError('发送失败，请重试');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -105,6 +117,14 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(_isRegisterMode ? '注册' : '登录'),
+        centerTitle: true,
+      ),
       body: Center(
         child: ConstrainedBox(
           // 限制网页端宽度，防止输入框被无限拉伸
@@ -161,6 +181,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: Text(_isRegisterMode ? '注册新账号' : '登录'),
                   ),
+                  if (!_isRegisterMode) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _isLoading ? null : _resetPassword,
+                        child: const Text('忘记密码？'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextButton(
                     onPressed: () {
