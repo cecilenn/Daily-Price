@@ -140,26 +140,25 @@ class _LoginScreenState extends State<LoginScreen> {
             // 限制网页端宽度，防止输入框被无限拉伸
             constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 Icon(
                   Icons.account_balance_wallet,
-                  size: 40,
+                  size: 36,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Text(
                   'Daily Price',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
                 TextFormField(
                   controller: _emailController,
                   decoration: const InputDecoration(
