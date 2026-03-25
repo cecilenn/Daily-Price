@@ -242,7 +242,7 @@
     const SUPABASE_URL = 'https://yfkzdoputwygnfqwtrck.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_btYCq4AdFM7jKC2l1ridDg_mQRE2ws5';
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const loadingEl = document.getElementById('loading');
     const formContainerEl = document.getElementById('form-container');
@@ -277,7 +277,7 @@
 
       try {
         // 使用 code 换取 session
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        const { data, error } = await client.auth.exchangeCodeForSession(code);
 
         if (error) {
           throw error;
@@ -319,7 +319,7 @@
 
       try {
         // 更新密码
-        const { error } = await supabase.auth.updateUser({
+        const { error } = await client.auth.updateUser({
           password: password
         });
 
