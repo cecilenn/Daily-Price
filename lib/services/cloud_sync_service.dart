@@ -15,6 +15,11 @@ class CloudSyncService {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('未登录');
 
+    // 先删除云端该用户的所有资产，再插入本地全量
+    await _client.from('assets').delete().eq('user_id', userId);
+
+    if (assets.isEmpty) return 0;
+
     final data = assets.map((a) {
       final map = a.toMap();
       map['user_id'] = userId;
@@ -22,7 +27,7 @@ class CloudSyncService {
       return map;
     }).toList();
 
-    await _client.from('assets').upsert(data);
+    await _client.from('assets').insert(data);
     return assets.length;
   }
 

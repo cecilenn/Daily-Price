@@ -610,7 +610,33 @@ dependencies:
   mobile_scanner: ^3.5.0
   flutter_colorpicker: ^1.0.3
   csv: 5.0.2  # 版本锁定
+  http: ^1.0.0  # HTTP 请求
+  supabase_flutter: ^2.0.0  # Supabase 云端同步
 ```
+
+---
+
+## V1.4.0 新增功能
+
+### 云端同步功能
+- 支持 Supabase 云端备份与恢复
+- 显示云端存档日期时间（格式：YYYY-MM-DD HH:mm:ss）
+- 使用 `CloudSyncService.getLastSyncTime()` 获取最后同步时间
+
+### 密码重置功能
+- App 内置密码重置流程（两步验证）
+- 发送验证码到邮箱（60秒倒计时重发）
+- 验证码验证 + 新密码设置
+- 支持密码显示/隐藏切换
+- UI 与登录页风格一致
+
+### 新增文件
+- `lib/screens/reset_password_screen.dart` - 密码重置页面
+- `reset.html` - 密码重置网页（Supabase Deep Link 回调）
+
+### 修改文件
+- `lib/screens/login_screen.dart` - 添加密码重置导航
+- `lib/screens/data_settings_screen.dart` - 添加云端存档时间显示
 
 ---
 

@@ -28,7 +28,7 @@
 
 | 类别 | 技术/插件 | 版本 | 用途 |
 |------|-----------|------|------|
-| 项目版本 | Daily Price | 1.3.2 | 应用版本号 |
+| 项目版本 | Daily Price | 1.4.0 | 应用版本号 |
 | 框架 | Flutter | ^3.11.0 | 跨平台 UI 框架 |
 | 数据库 | sqflite | 最新版 | SQLite 本地关系型数据库 |
 | 状态管理 | Provider | ^6.1.2 | 全局状态管理（AppProvider 管主题偏好，AssetProvider 管资产数据） |
@@ -204,3 +204,5 @@ flutter build windows --release
 **Made with ❤️ using Flutter & sqflite**
 
 </div>
+| ☁️ **云端同步** | 支持 Supabase 云端备份与恢复，显示云端存档日期时间 |
+| 🔐 **密码重置** | App 内置密码重置功能，支持验证码验证和新密码设置 |
