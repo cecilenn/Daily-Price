@@ -242,7 +242,9 @@
     const SUPABASE_URL = 'https://yfkzdoputwygnfqwtrck.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_btYCq4AdFM7jKC2l1ridDg_mQRE2ws5';
 
-    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { flowType: 'implicit' }
+    });
 
     const loadingEl = document.getElementById('loading');
     const formContainerEl = document.getElementById('form-container');
@@ -265,27 +267,20 @@
     }
 
     async function init() {
-      // 从 URL 中获取 code 参数
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get('code');
-
-      if (!code) {
-        loadingEl.style.display = 'none';
-        errorContainerEl.classList.remove('hidden');
-        return;
-      }
-
+      // implicit flow：token 在 URL hash 中，直接获取 session
       try {
-        // 使用 code 换取 session
-        const { data, error } = await client.auth.exchangeCodeForSession(code);
+        const { data, error } = await client.auth.getSession();
 
-        if (error) {
-          throw error;
+        if (error) throw error;
+
+        if (data.session) {
+          // 已有 session，显示重置表单
+          loadingEl.style.display = 'none';
+          formContainerEl.classList.remove('hidden');
+        } else {
+          // 没有 session，可能链接格式不对
+          throw new Error('无法获取登录状态，请重新发起密码重置');
         }
-
-        // 验证成功，显示表单
-        loadingEl.style.display = 'none';
-        formContainerEl.classList.remove('hidden');
       } catch (error) {
         console.error('Exchange code error:', error);
         loadingEl.style.display = 'none';
