@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'reset_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -83,36 +84,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _showError(e.message);
     } catch (e) {
       _showError('注册失败，请重试');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _resetPassword() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      _showError('请先输入邮箱地址');
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(
-        email,
-        redirectTo: 'https://cecilenn.github.io/Daily-Price/reset.html',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('重置密码的邮件已发送，请查收邮箱'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } on AuthException catch (e) {
-      _showError(e.message);
-    } catch (e) {
-      _showError('发送失败，请重试');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -209,7 +180,17 @@ class _LoginScreenState extends State<LoginScreen> {
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
-                                onPressed: _isLoading ? null : _resetPassword,
+                                onPressed: _isLoading
+                                    ? null
+                                    : () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const ResetPasswordScreen(),
+                                          ),
+                                        );
+                                      },
                                 child: const Text('忘记密码？'),
                               ),
                             ),

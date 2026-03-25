@@ -28,6 +28,31 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
   bool _isExporting = false;
   bool _isImporting = false;
   bool _importExportLocked = false; // 防抖保护
+  String? _lastSyncTimeText; // 云端最后同步时间
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLastSyncTime();
+  }
+
+  /// 加载云端最后同步时间
+  Future<void> _loadLastSyncTime() async {
+    if (!CloudSyncService.instance.isLoggedIn) return;
+
+    try {
+      final lastSyncTime = await CloudSyncService.instance.getLastSyncTime();
+      if (lastSyncTime != null && mounted) {
+        setState(() {
+          _lastSyncTimeText = DateFormat(
+            'yyyy-MM-dd HH:mm:ss',
+          ).format(lastSyncTime);
+        });
+      }
+    } catch (e) {
+      debugPrint('获取云端同步时间失败：$e');
+    }
+  }
 
   /// 格式化时间戳为 yyyy-MM-dd 格式
   String _formatTimestamp(int? timestamp) {
@@ -553,6 +578,13 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                               '账号：${CloudSyncService.instance.userEmail}',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
+                            if (_lastSyncTimeText != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '云端存档：$_lastSyncTimeText',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                             const SizedBox(height: 12),
 
                             // 同步到云端
