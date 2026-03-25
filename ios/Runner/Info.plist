@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>CFBundleURLSchemes</key>
+	<array>
+		<string>dailyprice</string>
+	</array>
 </dict>
 </plist>

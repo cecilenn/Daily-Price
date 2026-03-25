@@ -58,10 +58,18 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await Supabase.instance.client.auth.signUp(
+      final response = await Supabase.instance.client.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+
+      // 检测防枚举：user 存在但 identities 为空 = 邮箱已被注册
+      if (response.user != null &&
+          response.user!.identities != null &&
+          response.user!.identities!.isEmpty) {
+        _showError('该邮箱已被注册，请直接登录');
+        return;
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -90,7 +98,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'dailyprice://reset-password',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -171,36 +182,46 @@ class _LoginScreenState extends State<LoginScreen> {
                       _isRegisterMode ? _signUp() : _signIn(),
                 ),
                 const SizedBox(height: 24),
-                if (_isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else ...[
-                  ElevatedButton(
-                    onPressed: _isRegisterMode ? _signUp : _signIn,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: Text(_isRegisterMode ? '注册新账号' : '登录'),
-                  ),
-                  if (!_isRegisterMode) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: _isLoading ? null : _resetPassword,
-                        child: const Text('忘记密码？'),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _isRegisterMode = !_isRegisterMode;
-                      });
-                    },
-                    child: Text(_isRegisterMode ? '已有账号？直接登录' : '没有账号？点击注册'),
-                  ),
-                ],
+                SizedBox(
+                  height: 120,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ElevatedButton(
+                              onPressed: _isRegisterMode ? _signUp : _signIn,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                              ),
+                              child: Text(_isRegisterMode ? '注册新账号' : '登录'),
+                            ),
+                            if (!_isRegisterMode) ...[
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _isLoading ? null : _resetPassword,
+                                  child: const Text('忘记密码？'),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _isRegisterMode = !_isRegisterMode;
+                                });
+                              },
+                              child: Text(
+                                _isRegisterMode ? '已有账号？直接登录' : '没有账号？点击注册',
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
               ],
             ),
           ),
