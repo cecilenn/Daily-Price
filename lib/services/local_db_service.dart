@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
+import '../models/check_session.dart';
 
 /// 本地数据库服务类 V2.0 - 单例模式
 /// 负责管理 sqflite 数据库实例和提供 CRUD 操作
@@ -35,7 +36,7 @@ class LocalDbService {
     // 打开数据库并创建表
     _db = await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -66,6 +67,25 @@ class LocalDbService {
         exclude_from_daily INTEGER DEFAULT 0,
         ownership_type TEXT DEFAULT 'buyout',
         renewals TEXT DEFAULT '[]'
+      )
+    ''');
+    // 创建检查功能表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS check_sessions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        status INTEGER DEFAULT 0
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS check_items (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        asset_snapshot TEXT NOT NULL,
+        confirmed_at INTEGER,
+        FOREIGN KEY (session_id) REFERENCES check_sessions(id) ON DELETE CASCADE
       )
     ''');
   }
@@ -116,6 +136,29 @@ class LocalDbService {
         );
       }
       log('========== [LocalDb] V7 续费记录字段升级完成 ==========');
+    }
+
+    // V7 -> V8: 添加检查功能表
+    if (oldVersion < 8) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS check_sessions (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          status INTEGER DEFAULT 0
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS check_items (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          asset_snapshot TEXT NOT NULL,
+          confirmed_at INTEGER,
+          FOREIGN KEY (session_id) REFERENCES check_sessions(id) ON DELETE CASCADE
+        )
+      ''');
+      log('========== [LocalDb] V8 检查功能表创建完成 ==========');
     }
   }
 
@@ -359,6 +402,103 @@ class LocalDbService {
   /// 删除指定分类的所有资产
   Future<void> deleteCategoryAndCleanTags(String category) async {
     await db.delete('assets', where: 'category = ?', whereArgs: [category]);
+  }
+
+  // === 检查任务 CRUD ===
+
+  Future<CheckSession> insertCheckSession(CheckSession session) async {
+    final db = this.db;
+    await db.insert('check_sessions', session.toMap());
+    return session;
+  }
+
+  Future<List<CheckSession>> getAllCheckSessions() async {
+    final db = this.db;
+    final maps = await db.query('check_sessions', orderBy: 'created_at DESC');
+    return maps.map((m) => CheckSession.fromMap(m)).toList();
+  }
+
+  Future<CheckSession?> getCheckSession(String id) async {
+    final db = this.db;
+    final maps = await db.query(
+      'check_sessions',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) return null;
+    return CheckSession.fromMap(maps.first);
+  }
+
+  Future<void> updateCheckSessionStatus(String id, int status) async {
+    final db = this.db;
+    await db.update(
+      'check_sessions',
+      {'status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteCheckSession(String id) async {
+    final db = this.db;
+    await db.delete('check_items', where: 'session_id = ?', whereArgs: [id]);
+    await db.delete('check_sessions', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // === 检查项 CRUD ===
+
+  Future<CheckItem> insertCheckItem(CheckItem item) async {
+    final db = this.db;
+    await db.insert('check_items', item.toMap());
+    return item;
+  }
+
+  Future<List<CheckItem>> getCheckItems(String sessionId) async {
+    final db = this.db;
+    final maps = await db.query(
+      'check_items',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+    return maps.map((m) => CheckItem.fromMap(m)).toList();
+  }
+
+  Future<void> confirmCheckItem(String id) async {
+    final db = this.db;
+    await db.update(
+      'check_items',
+      {'confirmed_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteCheckItem(String id) async {
+    final db = this.db;
+    await db.delete('check_items', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 检查项导出为 JSON
+  Future<Map<String, dynamic>> exportCheckSession(String sessionId) async {
+    final session = await getCheckSession(sessionId);
+    if (session == null) throw Exception('检查任务不存在');
+    final items = await getCheckItems(sessionId);
+    return {
+      'session': session.toMap(),
+      'items': items.map((i) => i.toMap()).toList(),
+    };
+  }
+
+  /// 从 JSON 导入检查项
+  Future<void> importCheckSession(Map<String, dynamic> data) async {
+    final session = CheckSession.fromMap(data['session']);
+    final items = (data['items'] as List)
+        .map((i) => CheckItem.fromMap(i))
+        .toList();
+    await insertCheckSession(session);
+    for (final item in items) {
+      await insertCheckItem(item);
+    }
   }
 
   /// 关闭数据库连接

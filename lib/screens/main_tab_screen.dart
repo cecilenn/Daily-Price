@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
-import 'analysis_screen.dart';
+import 'function_hub_screen.dart';
 import 'settings_screen.dart';
 import 'add_edit_asset_screen.dart';
 
@@ -26,7 +26,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
     super.initState();
     _pages = [
       HomeScreen(hideDockNotifier: _hideDock),
-      const AnalysisScreen(),
+      const FunctionHubScreen(),
       const SettingsScreen(),
     ];
   }
@@ -103,8 +103,8 @@ class _MainTabScreenState extends State<MainTabScreen> {
                             ),
                             _buildNavItem(
                               1,
-                              Icons.bar_chart_outlined,
-                              Icons.bar_chart,
+                              Icons.dashboard_outlined,
+                              Icons.dashboard,
                             ),
                             _buildNavItem(
                               2,
@@ -169,7 +169,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
       case 0:
         return '资产';
       case 1:
-        return '分析';
+        return '功能';
       case 2:
         return '设置';
       default:

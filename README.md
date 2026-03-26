@@ -14,6 +14,7 @@
 | 🔄 **三态资产管理** | 服役中 / 已退役 / 已卖出，支持时间冻结与状态转换 |
 | 🏝️ **悬浮岛导航** | iOS 风格毛玻璃特效底部导航栏，精致胶囊设计 |
 | 📊 **全局统计卡片** | 首页顶部实时展示总资产、日均消费、资产状态分布 |
+| 🔍 **资产检查功能** | 支持创建检查任务，扫码盘点资产，确认资产状态，导出检查报告 |
 | 🏷️ **自定义分栏** | 创建自定义分栏标签，灵活组织资产，支持级联删除 |
 | 📁 **自定义分类** | 替代硬编码分类，用户可自由创建分类（家庭/公司/...） |
 | 🔄 **订阅续费追踪** | 订阅资产支持多次续费记录，自动计算到期日和日均成本 |
@@ -21,6 +22,9 @@
 | � **CSV 导入/导出** | 跨平台数据备份与恢复，支持 `upsert` 智能合并 |
 | 🎨 **主题切换** | 极简留白、暗黑模式、复古护眼三种主题 |
 | �📊 **共享状态架构** | AssetProvider 统一管理资产数据，所有页面实时同步 |
+| ☁️ **云端同步** | 支持 Supabase 云端备份与恢复，显示云端存档日期时间 |
+| 🔐 **密码重置** | App 内置密码重置功能，支持验证码验证和新密码设置 |
+
 
 ---
 
@@ -55,10 +59,12 @@
 lib/
 ├── main.dart                    # 应用入口
 ├── models/
-│   └── asset.dart               # 核心资产数据模型
+│   ├── asset.dart               # 核心资产数据模型
+│   └── check_session.dart       # 检查任务与检查项模型
 ├── providers/
 │   ├── app_provider.dart        # 全局状态管理（主题偏好）
-│   └── asset_provider.dart      # 资产数据共享状态管理
+│   ├── asset_provider.dart      # 资产数据共享状态管理
+│   └── check_provider.dart      # 检查任务状态管理
 ├── screens/
 │   ├── main_tab_screen.dart     # 主标签页（悬浮岛导航）
 │   ├── home_screen.dart         # 首页：资产列表 + 全局统计
@@ -72,7 +78,11 @@ lib/
 │   ├── tag_settings_screen.dart # 标签设置页面
 │   ├── preference_settings_screen.dart # 偏好设置页面
 │   ├── data_settings_screen.dart # 数据设置页面
-│   └── theme_settings_screen.dart # 主题设置页面
+│   ├── theme_settings_screen.dart # 主题设置页面
+│   ├── function_hub_screen.dart # 功能入口页
+│   ├── check_list_screen.dart   # 检查任务列表页
+│   ├── check_detail_screen.dart # 检查详情页
+│   └── check_scan_screen.dart   # 扫码检查页
 ├── services/
 │   ├── local_db_service.dart    # SQLite 数据库服务层
 │   └── asset_filter_sorter.dart # 过滤与排序工具类
@@ -204,5 +214,3 @@ flutter build windows --release
 **Made with ❤️ using Flutter & sqflite**
 
 </div>
-| ☁️ **云端同步** | 支持 Supabase 云端备份与恢复，显示云端存档日期时间 |
-| 🔐 **密码重置** | App 内置密码重置功能，支持验证码验证和新密码设置 |

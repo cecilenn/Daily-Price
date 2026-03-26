@@ -10,25 +10,48 @@ class CloudSyncService {
   bool get isLoggedIn => _client.auth.currentUser != null;
   String? get userEmail => _client.auth.currentUser?.email;
 
-  /// 上传本地数据到云端（全量覆盖）
-  Future<int> syncUp(List<Asset> assets) async {
+  /// 上传本地数据到云端（智能合并，减少数据丢失风险）
+  Future<(int inserted, int updated, int deleted)> syncUp(List<Asset> assets) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('未登录');
 
-    // 先删除云端该用户的所有资产，再插入本地全量
-    await _client.from('assets').delete().eq('user_id', userId);
+    final now = DateTime.now().toIso8601String();
 
-    if (assets.isEmpty) return 0;
+    // 拉取云端当前所有资产 id
+    final cloudResponse = await _client
+        .from('assets')
+        .select('id')
+        .eq('user_id', userId);
 
-    final data = assets.map((a) {
-      final map = a.toMap();
-      map['user_id'] = userId;
-      map['updated_at'] = DateTime.now().toIso8601String();
-      return map;
-    }).toList();
+    final cloudIds = (cloudResponse as List).map((m) => m['id'] as String).toSet();
+    final localIds = assets.map((a) => a.id).toSet();
 
-    await _client.from('assets').insert(data);
-    return assets.length;
+    int inserted = 0, updated = 0, deletedCount = 0;
+
+    // 云端有、本地没有 → 删除
+    final toDelete = cloudIds.difference(localIds);
+    if (toDelete.isNotEmpty) {
+      await _client.from('assets').delete().eq('user_id', userId).inFilter('id', toDelete.toList());
+      deletedCount = toDelete.length;
+    }
+
+    // 本地有 → 插入或更新（upsert 自动处理）
+    if (assets.isNotEmpty) {
+      final data = assets.map((a) {
+        final map = a.toMap();
+        map['user_id'] = userId;
+        map['updated_at'] = now;
+        return map;
+      }).toList();
+
+      await _client.from('assets').upsert(data);
+
+      // 统计：云端已有的是更新，没有的是新增
+      inserted = localIds.difference(cloudIds).length;
+      updated = localIds.intersection(cloudIds).length;
+    }
+
+    return (inserted, updated, deletedCount);
   }
 
   /// 从云端下载数据到本地（全量覆盖本地）

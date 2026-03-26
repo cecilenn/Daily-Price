@@ -10,10 +10,12 @@
 lib/
 ├── main.dart                    # 应用入口
 ├── models/
-│   └── asset.dart               # 核心资产数据模型
+│   ├── asset.dart               # 核心资产数据模型
+│   └── check_session.dart       # 检查任务与检查项模型（新增）
 ├── providers/
 │   ├── app_provider.dart        # 全局状态管理（主题偏好）
-│   └── asset_provider.dart      # 资产数据共享状态管理（新增）
+│   ├── asset_provider.dart      # 资产数据共享状态管理（新增）
+│   └── check_provider.dart      # 检查任务状态管理（新增）
 ├── screens/
 │   ├── main_tab_screen.dart     # 主标签页（悬浮岛导航）
 │   ├── home_screen.dart         # 首页：资产列表 + 全局统计
@@ -27,7 +29,11 @@ lib/
 │   ├── tag_settings_screen.dart # 标签设置页面（新增）
 │   ├── preference_settings_screen.dart # 偏好设置页面（新增）
 │   ├── data_settings_screen.dart # 数据设置页面（新增）
-│   └── theme_settings_screen.dart # 主题设置页面（新增）
+│   ├── theme_settings_screen.dart # 主题设置页面（新增）
+│   ├── function_hub_screen.dart # 功能入口页（新增）
+│   ├── check_list_screen.dart   # 检查任务列表页（新增）
+│   ├── check_detail_screen.dart # 检查详情页（新增）
+│   └── check_scan_screen.dart   # 扫码检查页（新增）
 ├── services/
 │   ├── local_db_service.dart    # SQLite 数据库服务层
 │   └── asset_filter_sorter.dart # 过滤与排序工具类（新增）
@@ -47,6 +53,12 @@ lib/
 | 文件 | 职责 |
 |------|------|
 | `asset_provider.dart` | 资产数据的集中管理，提供 loadAssets、saveAsset、deleteAsset、importAssets 等方法，所有页面通过 Consumer 或 context.read 访问 |
+| `check_provider.dart` | 检查任务的集中管理，提供 loadSessions、createSession、completeSession、deleteSession 等方法 |
+| `check_session.dart` | 检查任务与检查项数据模型 |
+| `function_hub_screen.dart` | 功能入口页，提供分析、检查等功能入口 |
+| `check_list_screen.dart` | 检查任务列表页，支持新建、删除检查任务 |
+| `check_detail_screen.dart` | 检查详情页，显示检查项列表，支持筛选、确认、删除检查项 |
+| `check_scan_screen.dart` | 扫码检查页，支持扫码添加检查项，滑动确认 |
 | `asset_filter_sorter.dart` | 提供 filterAndSort 静态方法，根据分栏、排序方式过滤和排序资产列表 |
 | `stats_calculator.dart` | 提供 calculate 静态方法，计算总资产、日均消费、各状态资产数量等统计数据 |
 
@@ -92,7 +104,7 @@ flutter run
 
 ## 数据库架构 (SQLite)
 
-### 当前版本：v7
+### 当前版本：v8
 
 ### assets 表结构
 
@@ -119,6 +131,22 @@ CREATE TABLE assets(
   exclude_from_daily INTEGER DEFAULT 0,   -- 不计入日均消费（0 或 1）
   ownership_type TEXT DEFAULT 'buyout',   -- 所有权类型：buyout/subscription
   renewals TEXT DEFAULT '[]'              -- 续费记录列表（JSON 字符串）
+);
+
+CREATE TABLE check_sessions (
+  id TEXT PRIMARY KEY,                    -- UUID v4 字符串
+  name TEXT NOT NULL,                     -- 检查任务名称
+  created_at INTEGER NOT NULL,            -- 创建时间时间戳（毫秒）
+  status INTEGER DEFAULT 0                -- 状态：0=进行中, 1=已完成
+);
+
+CREATE TABLE check_items (
+  id TEXT PRIMARY KEY,                    -- UUID v4 字符串
+  session_id TEXT NOT NULL,               -- 关联的检查任务ID
+  asset_id TEXT NOT NULL,                 -- 资产ID
+  asset_snapshot TEXT NOT NULL,            -- 资产快照（JSON 字符串）
+  confirmed_at INTEGER,                   -- 确认时间时间戳（毫秒，null=未确认）
+  FOREIGN KEY (session_id) REFERENCES check_sessions(id) ON DELETE CASCADE
 )
 ```
 
@@ -307,12 +335,13 @@ final mode = TimeDisplayMode.values.firstWhere(
 
 ## 状态管理架构
 
-当前系统采用双 Provider 架构：
+当前系统采用三 Provider 架构：
 
 | Provider | 职责 |
 |----------|------|
 | `AppProvider` | 主题模式、日期格式等用户偏好设置 |
 | `AssetProvider` | 资产数据的加载、增删改、导入，所有页面共享 |
+| `CheckProvider` | 检查任务的加载、创建、完成、删除，所有页面共享 |
 
 ### AssetProvider 核心方法
 
@@ -323,6 +352,21 @@ final mode = TimeDisplayMode.values.firstWhere(
 | `deleteAsset(id)` | 删除资产并物理删除关联文件 |
 | `importAssets(list)` | 批量导入（upsert），内部自动重新加载 |
 | `togglePinned(asset)` | 切换置顶状态 |
+
+### CheckProvider 核心方法
+
+| 方法 | 说明 |
+|------|------|
+| `loadSessions()` | 加载全部检查任务数据，启动时自动调用 |
+| `createSession(name)` | 创建新的检查任务 |
+| `completeSession(id)` | 完成检查任务（状态标记为已完成） |
+| `deleteSession(id)` | 删除检查任务及其关联的检查项 |
+| `getItems(sessionId)` | 获取指定检查任务的所有检查项 |
+| `addItem(...)` | 添加检查项（扫码时调用） |
+| `confirmItem(id)` | 确认检查项（标记为已确认） |
+| `deleteItem(id)` | 删除检查项 |
+| `exportSession(sessionId)` | 导出检查任务为 JSON |
+| `importSession(data)` | 从 JSON 导入检查任务 |
 
 ### 数据流
 

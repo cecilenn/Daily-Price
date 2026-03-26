@@ -619,10 +619,10 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                                 );
                                 if (confirm == true) {
                                   try {
-                                    final count = await CloudSyncService
+                                    final (inserted, updated, deleted) = await CloudSyncService
                                         .instance
                                         .syncUp(assets);
-                                    _showSuccess('已上传 $count 条资产到云端');
+                                    _showSuccess('同步完成：新增 $inserted，更新 $updated，删除 $deleted');
                                   } catch (e) {
                                     _showError('上传失败：${e.toString()}');
                                   }
