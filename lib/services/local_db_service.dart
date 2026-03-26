@@ -439,6 +439,16 @@ class LocalDbService {
     );
   }
 
+  Future<void> updateCheckSessionName(String id, String name) async {
+    final db = this.db;
+    await db.update(
+      'check_sessions',
+      {'name': name},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> deleteCheckSession(String id) async {
     final db = this.db;
     await db.delete('check_items', where: 'session_id = ?', whereArgs: [id]);

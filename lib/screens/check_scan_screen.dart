@@ -130,13 +130,26 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
 
     // 确认
     await context.read<CheckProvider>().confirmItem(existing.id);
+
+    // 用确认后的快照数据（从 existing item 获取，而非从 QR 码）
+    final confirmedSnapshotData = existing.snapshotData;
+
     setState(() {
       final idx = _scannedItems.indexWhere((i) => i.id == existing.id);
-      if (idx >= 0) _scannedItems[idx] = existing;
+      if (idx >= 0) {
+        // 创建更新后的 CheckItem（confirmedAt 不为 null）
+        _scannedItems[idx] = CheckItem(
+          id: existing.id,
+          sessionId: existing.sessionId,
+          assetId: existing.assetId,
+          assetSnapshot: existing.assetSnapshot,
+          confirmedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
     });
-    _showMessage('✅ $assetName 已确认');
-    await Future.delayed(const Duration(milliseconds: 800));
-    _scannerController.start();
+
+    // 显示详情 Sheet（确认模式）
+    _showAssetDetailFromSnapshot(confirmedSnapshotData, existing.id);
   }
 
   Future<void> _pickImageFromGallery() async {
@@ -241,10 +254,7 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _scannerController.start();
-                      },
+                      onPressed: () => Navigator.pop(ctx),
                     ),
                   ],
                 ),
@@ -285,60 +295,13 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
                   ),
                 ),
               ),
-              // 底部按钮区域
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: widget.mode == ScanMode.entry
-                    // 录入模式：只显示"继续扫描"
-                    ? SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: const Text('继续扫描'),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _scannerController.start();
-                          },
-                        ),
-                      )
-                    // 确认模式：显示"跳过"和"确认"
-                    : Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.skip_next),
-                              label: const Text('跳过'),
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                _scannerController.start();
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.check),
-                              label: const Text('确认'),
-                              onPressed: () async {
-                                await context.read<CheckProvider>().confirmItem(
-                                  checkItemId,
-                                );
-                                if (mounted) {
-                                  Navigator.pop(ctx);
-                                  _scannerController.start();
-                                  setState(() {});
-                                }
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
             ],
           ),
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) _scannerController.start();
+    });
   }
 
   String _formatTimestamp(int timestamp) {
@@ -368,6 +331,20 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
         ],
       ),
     );
+  }
+
+  bool _isItemConfirmed(String checkItemId) {
+    final item = _scannedItems.firstWhere(
+      (item) => item.id == checkItemId,
+      orElse: () => CheckItem(
+        id: '',
+        sessionId: '',
+        assetId: '',
+        assetSnapshot: '',
+        confirmedAt: null,
+      ),
+    );
+    return item.isConfirmed;
   }
 
   void _finishScanning() {

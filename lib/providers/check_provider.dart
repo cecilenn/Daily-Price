@@ -32,6 +32,12 @@ class CheckProvider extends ChangeNotifier {
     await loadSessions();
   }
 
+  /// 重命名检查任务
+  Future<void> renameSession(String id, String newName) async {
+    await LocalDbService().updateCheckSessionName(id, newName);
+    await loadSessions();
+  }
+
   /// 获取检查项
   Future<List<CheckItem>> getItems(String sessionId) async {
     return await LocalDbService().getCheckItems(sessionId);

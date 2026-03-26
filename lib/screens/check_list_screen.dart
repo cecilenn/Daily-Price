@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:csv/csv.dart';
@@ -61,6 +60,13 @@ class _CheckListScreenState extends State<CheckListScreen> {
     });
   }
 
+  void _exitMultiSelectMode() {
+    setState(() {
+      _isMultiSelectMode = false;
+      _selectedSessionIds.clear();
+    });
+  }
+
   void _showCreateDialog() {
     final controller = TextEditingController();
     showDialog(
@@ -108,24 +114,37 @@ class _CheckListScreenState extends State<CheckListScreen> {
     );
   }
 
-  void _confirmDelete(CheckSession session) {
+  void _renameSession(String sessionId, String currentName) {
+    final controller = TextEditingController(text: currentName);
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除检查任务'),
-        content: Text('确定要删除"${session.name}"吗？\n此操作不可恢复。'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名检查任务'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '输入新名称',
+            border: OutlineInputBorder(),
+          ),
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              context.read<CheckProvider>().deleteSession(session.id);
-              Navigator.pop(context);
+            onPressed: () async {
+              final newName = controller.text.trim();
+              if (newName.isNotEmpty && newName != currentName) {
+                await context.read<CheckProvider>().renameSession(
+                  sessionId,
+                  newName,
+                );
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
             },
-            child: const Text('删除'),
+            child: const Text('确定'),
           ),
         ],
       ),
@@ -148,10 +167,22 @@ class _CheckListScreenState extends State<CheckListScreen> {
             : null,
         actions: _isMultiSelectMode
             ? [
-                IconButton(
-                  icon: const Icon(Icons.select_all),
-                  onPressed: _selectAll,
-                  tooltip: '全选',
+                Builder(
+                  builder: (context) {
+                    final provider = context.watch<CheckProvider>();
+                    return IconButton(
+                      icon: Icon(
+                        _selectedSessionIds.length == provider.sessions.length
+                            ? Icons.deselect
+                            : Icons.select_all,
+                      ),
+                      onPressed: _selectAll,
+                      tooltip:
+                          _selectedSessionIds.length == provider.sessions.length
+                          ? '取消全选'
+                          : '全选',
+                    );
+                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.share),
@@ -253,87 +284,129 @@ class _CheckListScreenState extends State<CheckListScreen> {
   Widget _buildSessionCard(CheckSession session) {
     final isSelected = _selectedSessionIds.contains(session.id);
 
-    return Card(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () {
-          if (_isMultiSelectMode) {
-            _toggleSessionSelection(session.id);
-          } else {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => CheckDetailScreen(sessionId: session.id),
-              ),
-            ).then((_) {
-              // 从详情页返回时刷新列表（可能修改了完成状态）
-              context.read<CheckProvider>().loadSessions();
-            });
-          }
-        },
-        onLongPress: () {
-          if (!_isMultiSelectMode) {
-            _toggleMultiSelectMode();
-            _toggleSessionSelection(session.id);
-          }
-        },
+      decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (_isMultiSelectMode) ...[
-                    Checkbox(
-                      value: isSelected,
-                      onChanged: (value) {
-                        _toggleSessionSelection(session.id);
-                      },
+        border: _isMultiSelectMode && isSelected
+            ? Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2.5,
+              )
+            : Border.all(color: Colors.transparent, width: 2.5),
+        boxShadow: _isMultiSelectMode && isSelected
+            ? [
+                BoxShadow(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withOpacity(0.25),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
+      ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          onTap: () {
+            if (_isMultiSelectMode) {
+              _toggleSessionSelection(session.id);
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CheckDetailScreen(sessionId: session.id),
+                ),
+              ).then((_) {
+                // 从详情页返回时刷新列表（可能修改了完成状态）
+                context.read<CheckProvider>().loadSessions();
+              });
+            }
+          },
+          onLongPress: () {
+            if (!_isMultiSelectMode) {
+              _toggleMultiSelectMode();
+              _toggleSessionSelection(session.id);
+            }
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        session.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 8),
+                    _buildStatusBadge(session.status),
                   ],
-                  Expanded(
-                    child: Text(
-                      session.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '创建时间：${_formatTime(session.createdAt)}',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+                if (session.status == 0) ...[
+                  const SizedBox(height: 8),
+                  FutureBuilder<List>(
+                    // 每次构建时创建新的 future，确保从详情页返回时能刷新进度
+                    future: context
+                        .read<CheckProvider>()
+                        .getItems(session.id)
+                        .then((items) => items),
+                    builder: (context, snapshot) {
+                      final items = snapshot.data ?? [];
+                      final confirmed = items
+                          .where((i) => i.isConfirmed)
+                          .length;
+                      final total = items.length;
+                      return Text(
+                        '进度：$confirmed / $total',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                if (_isMultiSelectMode) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        _renameSession(session.id, session.name);
+                        _exitMultiSelectMode();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.edit,
+                          size: 16,
+                          color: Colors.grey[500],
+                        ),
                       ),
                     ),
                   ),
-                  _buildStatusBadge(session.status),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '创建时间：${_formatTime(session.createdAt)}',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-              if (session.status == 0) ...[
-                const SizedBox(height: 8),
-                FutureBuilder<List>(
-                  future: context.read<CheckProvider>().getItems(session.id),
-                  builder: (context, snapshot) {
-                    final items = snapshot.data ?? [];
-                    final confirmed = items.where((i) => i.isConfirmed).length;
-                    final total = items.length;
-                    return Text(
-                      '进度：$confirmed / $total',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 12,
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
+              ], // Column children 结束
+            ), // Column
+          ), // Padding
+        ), // InkWell
+      ), // Card
+    ); // AnimatedContainer
   }
 
   Widget _buildStatusBadge(int status) {
@@ -394,25 +467,106 @@ class _CheckListScreenState extends State<CheckListScreen> {
   void _batchShare() async {
     try {
       final provider = context.read<CheckProvider>();
-      final List<Map<String, dynamic>> exportData = [];
+      final csvRows = <List<dynamic>>[
+        [
+          'session_id',
+          'session_name',
+          'session_status',
+          'session_created_at',
+          'item_id',
+          'asset_id',
+          'asset_name',
+          'purchase_price',
+          'category',
+          'asset_status',
+          'confirmed_at',
+        ],
+      ];
 
       for (final sessionId in _selectedSessionIds) {
-        final data = await provider.exportSession(sessionId);
-        exportData.add(data);
+        final items = await provider.getItems(sessionId);
+        final sessions = provider.sessions;
+        final session = sessions.firstWhere((s) => s.id == sessionId);
+
+        for (final item in items) {
+          final snapshot = item.snapshotData;
+          csvRows.add([
+            session.id,
+            session.name,
+            session.status, // 数字 0 或 1，不是"进行中"
+            session.createdAt, // 整数毫秒，不是 ISO
+            item.id,
+            item.assetId,
+            snapshot['assetName'] ?? '',
+            snapshot['purchasePrice'] ?? '',
+            snapshot['category'] ?? '',
+            snapshot['status'] ?? '', // 数字或空，不是"服役中"
+            item.confirmedAt ?? '', // 整数毫秒或空，不是 ISO
+          ]);
+        }
       }
 
-      final jsonString = const JsonEncoder.withIndent('  ').convert({
-        'sessions': exportData,
-        'exported_at': DateTime.now().toIso8601String(),
-        'app_version': '1.3.2',
-      });
-
+      final csvString = const ListToCsvConverter().convert(csvRows);
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final fileName = 'check_sessions_$timestamp.json';
+      final defaultFileName = '检查导出_$timestamp.csv';
+
+      // 使用 BottomSheet 输入文件名
+      final nameController = TextEditingController(text: defaultFileName);
+      final fileName = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '导出文件名',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '输入文件名',
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(ctx, nameController.text.trim()),
+                      child: const Text('导出'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (fileName == null || fileName.isEmpty) return;
 
       if (kIsWeb) {
-        final bytes = utf8.encode(jsonString);
-        final blob = html.Blob([bytes], 'application/json');
+        final bytes = utf8.encode(csvString);
+        final blob = html.Blob([bytes], 'text/csv');
         final url = html.Url.createObjectUrlFromBlob(blob);
         html.AnchorElement(href: url)
           ..setAttribute('download', fileName)
@@ -424,8 +578,8 @@ class _CheckListScreenState extends State<CheckListScreen> {
           dialogTitle: '保存检查任务',
           fileName: fileName,
           type: FileType.custom,
-          allowedExtensions: ['json'],
-          bytes: Uint8List.fromList(utf8.encode(jsonString)),
+          allowedExtensions: ['csv'],
+          bytes: Uint8List.fromList(utf8.encode(csvString)),
         );
 
         if (savePath != null && savePath.isNotEmpty) {
@@ -527,82 +681,78 @@ class _CheckListScreenState extends State<CheckListScreen> {
       fieldIndex[header[i]] = i;
     }
 
-    // 验证必要字段
-    final requiredFields = ['session_id', 'session_name', 'asset_id'];
-    for (final field in requiredFields) {
+    // 必要字段
+    for (final field in ['session_id', 'session_name', 'asset_id']) {
       if (!fieldIndex.containsKey(field)) {
         _showError('CSV 缺少必要字段：$field');
         return;
       }
     }
 
-    // 从第一行数据获取 session 信息
-    final firstRow = csvRows[1];
-    final sessionId = firstRow[fieldIndex['session_id']!].toString();
-    final sessionName = firstRow[fieldIndex['session_name']!].toString();
-    final sessionStatus =
-        int.tryParse(
-          firstRow[fieldIndex['session_status']!]?.toString() ?? '0',
-        ) ??
-        0;
-    final createdAt = firstRow[fieldIndex['created_at']!]?.toString() ?? '';
+    // 兼容字段名
+    final assetStatusKey = fieldIndex.containsKey('asset_status')
+        ? 'asset_status'
+        : (fieldIndex.containsKey('status') ? 'status' : null);
 
-    // 创建新的 session 名称（添加“（导入）”后缀）
-    final newSessionName = '$sessionName（导入）';
+    // 按 session_id 分组
+    final groupedRows = <String, List<List<dynamic>>>{};
+    final sessionNames = <String, String>{};
 
-    // 创建新的 CheckSession
-    final newSession = await context.read<CheckProvider>().createSession(
-      newSessionName,
-    );
-
-    // 遍历每一行，创建 CheckItem
-    final items = <Map<String, dynamic>>[];
     for (int i = 1; i < csvRows.length; i++) {
       final row = csvRows[i];
-      final assetId = row[fieldIndex['asset_id']!].toString();
-      final assetName = row[fieldIndex['asset_name']!]?.toString() ?? '';
-      final purchasePrice =
-          row[fieldIndex['purchase_price']!]?.toString() ?? '';
-      final category = row[fieldIndex['category']!]?.toString() ?? '';
-      final status = row[fieldIndex['status']!]?.toString() ?? '';
-      final confirmedAt = row[fieldIndex['confirmed_at']!]?.toString() ?? '';
-
-      // 构建 asset_snapshot
-      final snapshot = {
-        'id': assetId,
-        'assetName': assetName,
-        'purchasePrice': double.tryParse(purchasePrice),
-        'category': category,
-        'status': int.tryParse(status),
-      };
-
-      items.add({
-        'asset_id': assetId,
-        'asset_snapshot': jsonEncode(snapshot),
-        'confirmed_at': confirmedAt.isNotEmpty ? confirmedAt : null,
-      });
+      final sid = row[fieldIndex['session_id']!].toString();
+      final sname = row[fieldIndex['session_name']!].toString();
+      groupedRows.putIfAbsent(sid, () => []).add(row);
+      sessionNames[sid] = sname;
     }
 
-    // 导入 items
-    for (final item in items) {
-      await context.read<CheckProvider>().addItem(
-        sessionId: newSession.id,
-        assetId: item['asset_id'] as String,
-        assetSnapshot: item['asset_snapshot'] as String,
+    // 每个 session 组创建一个新 session
+    int importedCount = 0;
+    for (final entry in groupedRows.entries) {
+      final rows = entry.value;
+      final sessionName = sessionNames[entry.key] ?? '未命名';
+
+      final newSession = await context.read<CheckProvider>().createSession(
+        '$sessionName（导入）',
       );
-      // 如果有确认时间，则确认该项
-      if (item['confirmed_at'] != null) {
-        final addedItems = await context.read<CheckProvider>().getItems(
-          newSession.id,
+
+      for (final row in rows) {
+        final assetId = row[fieldIndex['asset_id']!].toString();
+        final assetName = row[fieldIndex['asset_name']!]?.toString() ?? '';
+        final purchasePriceStr =
+            row[fieldIndex['purchase_price']!]?.toString() ?? '';
+        final category = row[fieldIndex['category']!]?.toString() ?? '';
+
+        final snapshot = <String, dynamic>{
+          'id': assetId,
+          'assetName': assetName,
+          'purchasePrice': double.tryParse(purchasePriceStr),
+          'category': category,
+        };
+        if (assetStatusKey != null) {
+          final s = row[fieldIndex[assetStatusKey]!]?.toString() ?? '';
+          if (s.isNotEmpty) snapshot['status'] = int.tryParse(s);
+        }
+
+        final item = await context.read<CheckProvider>().addItem(
+          sessionId: newSession.id,
+          assetId: assetId,
+          assetSnapshot: jsonEncode(snapshot),
         );
-        final addedItem = addedItems.firstWhere(
-          (e) => e.assetId == item['asset_id'],
-        );
-        await context.read<CheckProvider>().confirmItem(addedItem.id);
+
+        final confirmedAtStr =
+            row[fieldIndex['confirmed_at']!]?.toString() ?? '';
+        if (confirmedAtStr.isNotEmpty) {
+          final confirmedAtMs = int.tryParse(confirmedAtStr);
+          if (confirmedAtMs != null) {
+            await context.read<CheckProvider>().confirmItem(item.id);
+          }
+        }
       }
+      importedCount++;
     }
 
-    _showSuccess('导入成功');
+    _showSuccess('导入成功，共 $importedCount 个检查任务');
   }
 
   void _showSuccess(String message) {

@@ -49,6 +49,7 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
 
   void _refresh() {
     setState(() {
+      // 每次刷新时创建新的 futures，确保 FutureBuilder 重新执行
       _loadData();
     });
   }
@@ -71,7 +72,6 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
     setState(() {
       if (_selectedItemIds.contains(itemId)) {
         _selectedItemIds.remove(itemId);
-        if (_selectedItemIds.isEmpty) _exitMultiSelectMode();
       } else {
         _selectedItemIds.add(itemId);
       }
@@ -99,7 +99,7 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
                       mode: ScanMode.entry,
                     ),
                   ),
-                ).then((_) => _loadData());
+                ).then((_) => _refresh());
               },
             ),
             ListTile(
@@ -116,7 +116,7 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
                       mode: ScanMode.confirm,
                     ),
                   ),
-                ).then((_) => _loadData());
+                ).then((_) => _refresh());
               },
             ),
           ],
@@ -151,12 +151,13 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
           'session_id',
           'session_name',
           'session_status',
-          'created_at',
+          'session_created_at',
+          'item_id',
           'asset_id',
           'asset_name',
           'purchase_price',
           'category',
-          'status',
+          'asset_status',
           'confirmed_at',
         ],
       ];
@@ -166,14 +167,15 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
         csvRows.add([
           session['id'],
           session['name'],
-          session['status'],
-          session['created_at'],
+          session['status'], // 数字
+          session['created_at'], // 整数毫秒
+          item['id'],
           item['asset_id'],
           snapshot['assetName'] ?? '',
           snapshot['purchasePrice'] ?? '',
           snapshot['category'] ?? '',
-          snapshot['status'] ?? '',
-          item['confirmed_at'] ?? '',
+          snapshot['status'] ?? '', // 数字或空
+          item['confirmed_at'] ?? '', // 整数毫秒或空
         ]);
       }
 
@@ -276,17 +278,36 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
         centerTitle: true,
         actions: _isMultiSelectMode
             ? [
-                IconButton(
-                  icon: const Icon(Icons.check_circle),
-                  onPressed: _selectedItemIds.isNotEmpty ? _batchConfirm : null,
-                  tooltip: '标记已确认',
+                FutureBuilder<List<CheckItem>>(
+                  future: _itemsFuture,
+                  builder: (context, snapshot) {
+                    final items = snapshot.data ?? [];
+                    return IconButton(
+                      icon: Icon(
+                        _selectedItemIds.length == items.length
+                            ? Icons.deselect
+                            : Icons.select_all,
+                      ),
+                      tooltip: _selectedItemIds.length == items.length
+                          ? '取消全选'
+                          : '全选',
+                      onPressed: () {
+                        setState(() {
+                          if (_selectedItemIds.length == items.length) {
+                            _selectedItemIds.clear();
+                          } else {
+                            _selectedItemIds.clear();
+                            _selectedItemIds.addAll(items.map((i) => i.id));
+                          }
+                        });
+                      },
+                    );
+                  },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: _selectedItemIds.isNotEmpty
-                      ? _batchUnconfirm
-                      : null,
-                  tooltip: '取消确认',
+                  icon: const Icon(Icons.delete),
+                  tooltip: '删除',
+                  onPressed: _selectedItemIds.isNotEmpty ? _batchDelete : null,
                 ),
               ]
             : [
@@ -578,44 +599,54 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
   Widget _buildCheckItemCard(CheckItem item) {
     final isSelected = _selectedItemIds.contains(item.id);
 
-    return Card(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        leading: _isMultiSelectMode
-            ? Checkbox(
-                value: isSelected,
-                onChanged: (value) {
-                  _toggleItemSelection(item.id);
-                },
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: _isMultiSelectMode && isSelected
+            ? Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2.5,
               )
-            : Icon(
-                item.isConfirmed ? Icons.check_circle : Icons.circle_outlined,
-                color: item.isConfirmed ? Colors.green : Colors.red,
-              ),
-        title: Text(item.assetName),
-        subtitle: Text(
-          '资产ID: ${item.assetId}',
-          style: const TextStyle(fontSize: 12),
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete),
-          onPressed: () {
-            context.read<CheckProvider>().deleteItem(item.id);
-            _refresh();
+            : Border.all(color: Colors.transparent, width: 2.5),
+        boxShadow: _isMultiSelectMode && isSelected
+            ? [
+                BoxShadow(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withOpacity(0.25),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
+      ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          leading: Icon(
+            item.isConfirmed ? Icons.check_circle : Icons.circle_outlined,
+            color: item.isConfirmed ? Colors.green : Colors.red,
+          ),
+          title: Text(item.assetName),
+          subtitle: Text(
+            '资产ID: ${item.assetId}',
+            style: const TextStyle(fontSize: 12),
+          ),
+          onTap: () {
+            if (_isMultiSelectMode) {
+              _toggleItemSelection(item.id);
+            } else {
+              _showAssetDetail(item);
+            }
+          },
+          onLongPress: () {
+            if (!_isMultiSelectMode) {
+              _enterMultiSelectMode(item.id);
+            }
           },
         ),
-        onTap: () {
-          if (_isMultiSelectMode) {
-            _toggleItemSelection(item.id);
-          } else {
-            _showAssetDetail(item);
-          }
-        },
-        onLongPress: () {
-          if (!_isMultiSelectMode) {
-            _enterMultiSelectMode(item.id);
-          }
-        },
       ),
     );
   }
