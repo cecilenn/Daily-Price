@@ -284,17 +284,10 @@ class _CheckListScreenState extends State<CheckListScreen> {
   Widget _buildSessionCard(CheckSession session) {
     final isSelected = _selectedSessionIds.contains(session.id);
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: _isMultiSelectMode && isSelected
-            ? Border.all(
-                color: Theme.of(context).colorScheme.primary,
-                width: 2.5,
-              )
-            : null,
         boxShadow: _isMultiSelectMode && isSelected
             ? [
                 BoxShadow(
@@ -305,6 +298,15 @@ class _CheckListScreenState extends State<CheckListScreen> {
                   spreadRadius: 1,
                 ),
               ]
+            : null,
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: _isMultiSelectMode && isSelected
+            ? Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2.5,
+              )
             : null,
       ),
       child: Card(
@@ -348,6 +350,24 @@ class _CheckListScreenState extends State<CheckListScreen> {
                         ),
                       ),
                     ),
+                    if (_isMultiSelectMode) ...[
+                      InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          _renameSession(session.id, session.name);
+                          _exitMultiSelectMode();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.edit,
+                            size: 16,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
                     _buildStatusBadge(session.status),
                   ],
                 ),
@@ -378,27 +398,6 @@ class _CheckListScreenState extends State<CheckListScreen> {
                         ),
                       );
                     },
-                  ),
-                ],
-                if (_isMultiSelectMode) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () {
-                        _renameSession(session.id, session.name);
-                        _exitMultiSelectMode();
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.edit,
-                          size: 16,
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                    ),
                   ),
                 ],
               ], // Column children 结束

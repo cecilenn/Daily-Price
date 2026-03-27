@@ -130,6 +130,15 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
           'expire_date',
           'tags',
           'created_at',
+          'ownership_type',
+          'avatar_bg_color',
+          'avatar_text',
+          'avatar_icon_code_point',
+          'exclude_from_total',
+          'exclude_from_daily',
+          'renewals',
+          'consumables',
+          'replacements',
         ],
       ];
 
@@ -148,6 +157,15 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
           _formatTimestamp(asset.expireDate),
           asset.tags.join(';'),
           _formatTimestamp(asset.createdAt),
+          asset.ownershipType,
+          asset.avatarBgColor ?? '',
+          asset.avatarText ?? '',
+          asset.avatarIconCodePoint ?? '',
+          asset.excludeFromTotal,
+          asset.excludeFromDaily,
+          jsonEncode(asset.renewals.map((r) => r.toMap()).toList()),
+          jsonEncode(asset.consumables.map((c) => c.toMap()).toList()),
+          jsonEncode(asset.replacements.map((r) => r.toMap()).toList()),
         ]);
       }
 
@@ -465,6 +483,65 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
               _parseDateString(createdAtStr)?.millisecondsSinceEpoch ??
               DateTime.now().millisecondsSinceEpoch;
 
+          // 新字段解析
+          final ownershipType = getRowValue(['ownership_type']) ?? 'buyout';
+
+          final avatarBgColorStr = getRowValue(['avatar_bg_color']);
+          final avatarBgColor = avatarBgColorStr != null
+              ? int.tryParse(avatarBgColorStr)
+              : null;
+
+          final avatarText = getRowValue(['avatar_text']);
+
+          final avatarIconStr = getRowValue(['avatar_icon_code_point']);
+          final avatarIconCodePoint = avatarIconStr != null
+              ? int.tryParse(avatarIconStr)
+              : null;
+
+          final excludeFromTotalStr = getRowValue(['exclude_from_total']);
+          final excludeFromTotal = excludeFromTotalStr == '1' ? 1 : 0;
+
+          final excludeFromDailyStr = getRowValue(['exclude_from_daily']);
+          final excludeFromDaily = excludeFromDailyStr == '1' ? 1 : 0;
+
+          // JSON 字段解析
+          final renewalsStr = getRowValue(['renewals']);
+          List<RenewalRecord> renewals = [];
+          if (renewalsStr != null && renewalsStr.isNotEmpty) {
+            try {
+              final list = jsonDecode(renewalsStr) as List;
+              renewals = list
+                  .map((e) => RenewalRecord.fromMap(e as Map<String, dynamic>))
+                  .toList();
+            } catch (_) {}
+          }
+
+          final consumablesStr = getRowValue(['consumables']);
+          List<ConsumableRecord> consumables = [];
+          if (consumablesStr != null && consumablesStr.isNotEmpty) {
+            try {
+              final list = jsonDecode(consumablesStr) as List;
+              consumables = list
+                  .map(
+                    (e) => ConsumableRecord.fromMap(e as Map<String, dynamic>),
+                  )
+                  .toList();
+            } catch (_) {}
+          }
+
+          final replacementsStr = getRowValue(['replacements']);
+          List<ReplacementRecord> replacements = [];
+          if (replacementsStr != null && replacementsStr.isNotEmpty) {
+            try {
+              final list = jsonDecode(replacementsStr) as List;
+              replacements = list
+                  .map(
+                    (e) => ReplacementRecord.fromMap(e as Map<String, dynamic>),
+                  )
+                  .toList();
+            } catch (_) {}
+          }
+
           final asset = Asset(
             id: id,
             assetName: assetName,
@@ -479,6 +556,15 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
             expireDate: expireDate,
             tags: tags,
             createdAt: createdAt,
+            ownershipType: ownershipType,
+            avatarBgColor: avatarBgColor,
+            avatarText: avatarText,
+            avatarIconCodePoint: avatarIconCodePoint,
+            excludeFromTotal: excludeFromTotal,
+            excludeFromDaily: excludeFromDaily,
+            renewals: renewals,
+            consumables: consumables,
+            replacements: replacements,
           );
 
           assetsToImport.add(asset);
@@ -619,10 +705,16 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                                 );
                                 if (confirm == true) {
                                   try {
-                                    final (inserted, updated, deleted) = await CloudSyncService
-                                        .instance
-                                        .syncUp(assets);
-                                    _showSuccess('同步完成：新增 $inserted，更新 $updated，删除 $deleted');
+                                    final (
+                                      inserted,
+                                      updated,
+                                      deleted,
+                                    ) = await CloudSyncService.instance.syncUp(
+                                      assets,
+                                    );
+                                    _showSuccess(
+                                      '同步完成：新增 $inserted，更新 $updated，删除 $deleted',
+                                    );
                                   } catch (e) {
                                     _showError('上传失败：${e.toString()}');
                                   }

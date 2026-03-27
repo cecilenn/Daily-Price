@@ -52,27 +52,46 @@ class ConsumableRecord {
   final String name; // "PP棉滤芯"
   final double price; // 50.0（单次更换价格）
   final int cycleDays; // 180（更换周期天数，如6个月=180天）
+  final int purchasedAt; // 购买/安装日期时间戳（毫秒）
+  final int updatedAt; // 最后修改时间戳（毫秒）
 
   const ConsumableRecord({
     required this.id,
     required this.name,
     required this.price,
     required this.cycleDays,
+    required this.purchasedAt,
+    required this.updatedAt,
   });
+
+  /// 日均成本
+  double get dailyCost => (cycleDays > 0 && price > 0) ? price / cycleDays : 0;
 
   Map<String, dynamic> toMap() => {
     'id': id,
     'name': name,
     'price': price,
     'cycle_days': cycleDays,
+    'purchased_at': purchasedAt,
+    'updated_at': updatedAt,
   };
 
   factory ConsumableRecord.fromMap(Map<String, dynamic> map) =>
       ConsumableRecord(
-        id: map['id'] as String,
+        id:
+            map['id'] as String? ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
         name: map['name'] as String,
         price: (map['price'] as num).toDouble(),
-        cycleDays: map['cycle_days'] as int,
+        cycleDays: map['cycle_days'] as int? ?? map['cycleDays'] as int? ?? 0,
+        purchasedAt:
+            (map['purchased_at'] as int?) ??
+            (map['purchasedAt'] as int?) ??
+            DateTime.now().millisecondsSinceEpoch,
+        updatedAt:
+            (map['updated_at'] as int?) ??
+            (map['updatedAt'] as int?) ??
+            DateTime.now().millisecondsSinceEpoch,
       );
 
   ConsumableRecord copyWith({
@@ -80,11 +99,15 @@ class ConsumableRecord {
     String? name,
     double? price,
     int? cycleDays,
+    int? purchasedAt,
+    int? updatedAt,
   }) => ConsumableRecord(
     id: id ?? this.id,
     name: name ?? this.name,
     price: price ?? this.price,
     cycleDays: cycleDays ?? this.cycleDays,
+    purchasedAt: purchasedAt ?? this.purchasedAt,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
 }
 
@@ -349,13 +372,12 @@ class Asset {
   /// - 其他情况：按实际/冻结天数计算
   double get dailyCost {
     double cost = purchasePrice ?? 0;
-    final consumableDaily = consumableDailyCost;
 
     // 订阅资产：用续费记录计算
     if (isSubscription && renewals.isNotEmpty) {
       cost = totalRenewalCost;
       final days = totalSubscribedDays;
-      if (days > 0) return (cost / days) + consumableDaily;
+      if (days > 0) return (cost / days) + consumableDailyCost;
       return 0;
     }
 
@@ -371,12 +393,12 @@ class Asset {
         expectedLifespanDays != null &&
         expectedLifespanDays! > 0) {
       if (daysUsed < expectedLifespanDays!) {
-        return (cost / expectedLifespanDays!) + consumableDaily;
+        return (cost / expectedLifespanDays!) + consumableDailyCost;
       }
     }
 
     if (daysUsed <= 0) return cost;
-    return (cost / daysUsed) + consumableDaily;
+    return (cost / daysUsed) + consumableDailyCost;
   }
 
   /// 计算剩余天数

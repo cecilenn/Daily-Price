@@ -599,17 +599,10 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
   Widget _buildCheckItemCard(CheckItem item) {
     final isSelected = _selectedItemIds.contains(item.id);
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: _isMultiSelectMode && isSelected
-            ? Border.all(
-                color: Theme.of(context).colorScheme.primary,
-                width: 2.5,
-              )
-            : null,
         boxShadow: _isMultiSelectMode && isSelected
             ? [
                 BoxShadow(
@@ -620,6 +613,15 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
                   spreadRadius: 1,
                 ),
               ]
+            : null,
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: _isMultiSelectMode && isSelected
+            ? Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2.5,
+              )
             : null,
       ),
       child: Card(

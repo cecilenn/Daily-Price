@@ -815,7 +815,21 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       'soldDate': asset.soldDate,
       'createdAt': asset.createdAt,
       'isPinned': asset.isPinned,
+      // 耗材（最多 10 个，防止 QR 码过大）
+      if (asset.hasConsumables)
+        'consumables': asset.consumables
+            .take(10)
+            .map(
+              (c) => {
+                'name': c.name,
+                'price': c.price,
+                'cycle_days': c.cycleDays,
+                'purchased_at': c.purchasedAt,
+              },
+            )
+            .toList(),
       // 注意：不包含 avatarPath（本地路径在其他设备上无效）
+      // 注意：QR 码中不导出 purchasedAt、updatedAt、id 等——扫码录入时这些由接收方重新生成
     };
     return jsonEncode(data);
   }
@@ -824,6 +838,11 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   Future<void> _showQRCodeDialog(String jsonData) async {
     final ScreenshotController screenshotController = ScreenshotController();
     bool? saveSuccess;
+
+    // 根据 JSON 长度动态调整 QR 码大小
+    final qrSize = jsonData.length > 800
+        ? 300.0
+        : (jsonData.length > 400 ? 280.0 : 260.0);
 
     await showDialog(
       context: context,
@@ -835,8 +854,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             children: [
               // 二维码区域：使用 Screenshot 包裹，白色背景防止相册背景变黑
               SizedBox(
-                width: 260,
-                height: 260,
+                width: qrSize,
+                height: qrSize,
                 child: Screenshot(
                   controller: screenshotController,
                   child: Container(

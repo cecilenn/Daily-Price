@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -324,22 +325,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 8),
                           // 资产网格（嵌入到 ListView 中）
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final cardWidth = (constraints.maxWidth - 10) / 2;
-                              return Wrap(
-                                spacing: 10,
-                                runSpacing: 10,
-                                children: filteredAssets
-                                    .map(
-                                      (asset) => SizedBox(
-                                        width: cardWidth,
-                                        child: _buildAssetCard(asset),
-                                      ),
-                                    )
-                                    .toList(),
-                              );
-                            },
+                          MasonryGridView.count(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            itemCount: filteredAssets.length,
+                            itemBuilder: (context, index) =>
+                                _buildAssetCard(filteredAssets[index]),
                           ),
                         ],
                       ),
@@ -615,39 +609,27 @@ class _HomeScreenState extends State<HomeScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      // 耗材剩余天数（有耗材才显示，只显示最紧急的1个）
+                      // 耗材剩余天数（有耗材才显示，每条一行）
                       if (asset.hasConsumables) ...[
                         const SizedBox(height: 2),
-                        Builder(
-                          builder: (context) {
-                            // 找最紧急的耗材（剩余天数最小的）
-                            final urgent = asset.consumables.reduce(
-                              (a, b) =>
-                                  asset.getConsumableRemainingDays(a) <
-                                      asset.getConsumableRemainingDays(b)
-                                  ? a
-                                  : b,
-                            );
-                            final remaining = asset.getConsumableRemainingDays(
-                              urgent,
-                            );
-                            final isExpired = remaining < 0;
-                            return Text(
-                              isExpired
-                                  ? '${urgent.name} 已过期${-remaining}天'
-                                  : '${urgent.name} ${remaining}天',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: isExpired
-                                    ? Colors.red
-                                    : Colors.grey.shade400,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                            );
-                          },
-                        ),
+                        ...asset.consumables.map((c) {
+                          final remaining = asset.getConsumableRemainingDays(c);
+                          final isExpired = remaining < 0;
+                          return Text(
+                            isExpired
+                                ? '${c.name} ${-remaining}天前'
+                                : '${c.name} ${remaining}天',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isExpired
+                                  ? Colors.red
+                                  : Colors.grey.shade400,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          );
+                        }),
                       ],
                     ],
                   ),
@@ -719,6 +701,24 @@ class _HomeScreenState extends State<HomeScreen> {
         radius: 24, // 48x48 的圆角矩形效果
       ),
     );
+  }
+
+  /// 解码 JSON 列表辅助方法
+  static List<T> _decodeJsonList<T>(
+    dynamic json,
+    T Function(Map<String, dynamic>) fromMap,
+  ) {
+    if (json == null) return [];
+    try {
+      if (json is List) {
+        return json.map((e) => fromMap(e as Map<String, dynamic>)).toList();
+      }
+      if (json is String && json.isNotEmpty) {
+        final list = jsonDecode(json) as List;
+        return list.map((e) => fromMap(e as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
   }
 
   // 资产数据由 AssetProvider 管理，导航方法已移至 UI 层处理
@@ -808,6 +808,19 @@ class _HomeScreenState extends State<HomeScreen> {
             (jsonData['soldPrice'] as num?)?.toDouble() ??
             (jsonData['sold_price'] as num?)?.toDouble(),
         soldDate: jsonData['soldDate'] as int? ?? jsonData['sold_date'] as int?,
+        ownershipType:
+            jsonData['ownershipType'] as String? ??
+            jsonData['ownership_type'] as String? ??
+            'buyout',
+        renewals: _decodeJsonList(jsonData['renewals'], RenewalRecord.fromMap),
+        consumables: _decodeJsonList(
+          jsonData['consumables'],
+          ConsumableRecord.fromMap,
+        ),
+        replacements: _decodeJsonList(
+          jsonData['replacements'],
+          ReplacementRecord.fromMap,
+        ),
         avatarPath: null, // 强制设为 null（本地路径在其他设备上无效）
       );
 
