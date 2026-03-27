@@ -324,19 +324,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 8),
                           // 资产网格（嵌入到 ListView 中）
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  childAspectRatio: 1.2,
-                                  crossAxisSpacing: 10,
-                                  mainAxisSpacing: 10,
-                                ),
-                            itemCount: filteredAssets.length,
-                            itemBuilder: (context, index) =>
-                                _buildAssetCard(filteredAssets[index]),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final cardWidth = (constraints.maxWidth - 10) / 2;
+                              return Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: filteredAssets
+                                    .map(
+                                      (asset) => SizedBox(
+                                        width: cardWidth,
+                                        child: _buildAssetCard(asset),
+                                      ),
+                                    )
+                                    .toList(),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -612,6 +615,40 @@ class _HomeScreenState extends State<HomeScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      // 耗材剩余天数（有耗材才显示，只显示最紧急的1个）
+                      if (asset.hasConsumables) ...[
+                        const SizedBox(height: 2),
+                        Builder(
+                          builder: (context) {
+                            // 找最紧急的耗材（剩余天数最小的）
+                            final urgent = asset.consumables.reduce(
+                              (a, b) =>
+                                  asset.getConsumableRemainingDays(a) <
+                                      asset.getConsumableRemainingDays(b)
+                                  ? a
+                                  : b,
+                            );
+                            final remaining = asset.getConsumableRemainingDays(
+                              urgent,
+                            );
+                            final isExpired = remaining < 0;
+                            return Text(
+                              isExpired
+                                  ? '${urgent.name} 已过期${-remaining}天'
+                                  : '${urgent.name} ${remaining}天',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isExpired
+                                    ? Colors.red
+                                    : Colors.grey.shade400,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            );
+                          },
+                        ),
+                      ],
                     ],
                   ),
                 ],

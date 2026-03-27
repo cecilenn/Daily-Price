@@ -46,6 +46,82 @@ class RenewalRecord {
   );
 }
 
+/// 耗材定义记录
+class ConsumableRecord {
+  final String id;
+  final String name; // "PP棉滤芯"
+  final double price; // 50.0（单次更换价格）
+  final int cycleDays; // 180（更换周期天数，如6个月=180天）
+
+  const ConsumableRecord({
+    required this.id,
+    required this.name,
+    required this.price,
+    required this.cycleDays,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'name': name,
+    'price': price,
+    'cycle_days': cycleDays,
+  };
+
+  factory ConsumableRecord.fromMap(Map<String, dynamic> map) =>
+      ConsumableRecord(
+        id: map['id'] as String,
+        name: map['name'] as String,
+        price: (map['price'] as num).toDouble(),
+        cycleDays: map['cycle_days'] as int,
+      );
+
+  ConsumableRecord copyWith({
+    String? id,
+    String? name,
+    double? price,
+    int? cycleDays,
+  }) => ConsumableRecord(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    price: price ?? this.price,
+    cycleDays: cycleDays ?? this.cycleDays,
+  );
+}
+
+/// 耗材更换记录
+class ReplacementRecord {
+  final String id;
+  final String consumableName; // "PP棉滤芯"
+  final int replacedAt; // 更换日期时间戳（毫秒）
+  final double price; // 实际花费
+  final String? note; // 备注（可选）
+
+  const ReplacementRecord({
+    required this.id,
+    required this.consumableName,
+    required this.replacedAt,
+    required this.price,
+    this.note,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'consumable_name': consumableName,
+    'replaced_at': replacedAt,
+    'price': price,
+    'note': note ?? '',
+  };
+
+  factory ReplacementRecord.fromMap(Map<String, dynamic> map) =>
+      ReplacementRecord(
+        id: map['id'] as String,
+        consumableName: map['consumable_name'] as String,
+        replacedAt: map['replaced_at'] as int,
+        price: (map['price'] as num).toDouble(),
+        note: map['note'] as String?,
+      );
+}
+
 /// 资产模型 V2.0 - 用于记录个人资产折旧与价值平摊
 ///
 /// ## 字段说明
@@ -133,6 +209,12 @@ class Asset {
   /// 续费记录列表
   final List<RenewalRecord> renewals;
 
+  /// 耗材定义列表
+  final List<ConsumableRecord> consumables;
+
+  /// 耗材更换记录列表
+  final List<ReplacementRecord> replacements;
+
   Asset({
     required this.id,
     required this.assetName,
@@ -155,6 +237,8 @@ class Asset {
     this.excludeFromDaily = 0,
     this.ownershipType = 'buyout',
     this.renewals = const [],
+    this.consumables = const [],
+    this.replacements = const [],
   });
 
   /// 创建 Asset 的便捷工厂方法
@@ -180,6 +264,8 @@ class Asset {
     int excludeFromDaily = 0,
     String ownershipType = 'buyout',
     List<RenewalRecord>? renewals,
+    List<ConsumableRecord>? consumables,
+    List<ReplacementRecord>? replacements,
   }) {
     return Asset(
       id: id ?? '',
@@ -203,6 +289,8 @@ class Asset {
       excludeFromDaily: excludeFromDaily,
       ownershipType: ownershipType,
       renewals: renewals ?? const [],
+      consumables: consumables ?? const [],
+      replacements: replacements ?? const [],
     );
   }
 
@@ -261,12 +349,13 @@ class Asset {
   /// - 其他情况：按实际/冻结天数计算
   double get dailyCost {
     double cost = purchasePrice ?? 0;
+    final consumableDaily = consumableDailyCost;
 
     // 订阅资产：用续费记录计算
     if (isSubscription && renewals.isNotEmpty) {
       cost = totalRenewalCost;
       final days = totalSubscribedDays;
-      if (days > 0) return cost / days;
+      if (days > 0) return (cost / days) + consumableDaily;
       return 0;
     }
 
@@ -282,12 +371,12 @@ class Asset {
         expectedLifespanDays != null &&
         expectedLifespanDays! > 0) {
       if (daysUsed < expectedLifespanDays!) {
-        return cost / expectedLifespanDays!;
+        return (cost / expectedLifespanDays!) + consumableDaily;
       }
     }
 
     if (daysUsed <= 0) return cost;
-    return cost / daysUsed;
+    return (cost / daysUsed) + consumableDaily;
   }
 
   /// 计算剩余天数
@@ -334,6 +423,51 @@ class Asset {
     return (price - sold) / days;
   }
 
+  /// 是否有耗材
+  bool get hasConsumables => consumables.isNotEmpty;
+
+  /// 所有耗材的日均成本之和
+  double get consumableDailyCost {
+    if (consumables.isEmpty) return 0;
+    return consumables.fold(0.0, (sum, c) {
+      final dailyCost = c.cycleDays > 0 ? c.price / c.cycleDays : 0;
+      return sum + dailyCost;
+    });
+  }
+
+  /// 获取某个耗材距上次更换已过的天数
+  int getConsumableDaysSinceReplacement(String consumableName) {
+    final lastRecord = replacements
+        .where((r) => r.consumableName == consumableName)
+        .fold<ReplacementRecord?>(null, (latest, r) {
+          if (latest == null || r.replacedAt > latest.replacedAt) return r;
+          return latest;
+        });
+    if (lastRecord == null) return 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return ((now - lastRecord.replacedAt) / Duration.millisecondsPerDay)
+        .floor();
+  }
+
+  /// 获取某个耗材剩余天数（正数=剩余，负数=已过期）
+  int getConsumableRemainingDays(ConsumableRecord consumable) {
+    final usedDays = getConsumableDaysSinceReplacement(consumable.name);
+    return consumable.cycleDays - usedDays;
+  }
+
+  /// 累计耗材总花费
+  double get totalConsumableCost =>
+      replacements.fold(0.0, (sum, r) => sum + r.price);
+
+  /// 含耗材的日均成本 = (主体成本 + 累计耗材成本) / 使用天数
+  double get dailyCostWithConsumables {
+    final base = dailyCost;
+    if (!hasConsumables) return base;
+    final days = calculatedDays;
+    if (days <= 0) return base;
+    return (totalConsumableCost + (purchasePrice ?? 0)) / days;
+  }
+
   // ==================== SQLite 映射方法 ====================
 
   /// 转换为 Map（用于 SQLite 插入/更新）
@@ -361,6 +495,8 @@ class Asset {
       'exclude_from_daily': excludeFromDaily,
       'ownership_type': ownershipType,
       'renewals': jsonEncode(renewals.map((r) => r.toMap()).toList()),
+      'consumables': jsonEncode(consumables.map((c) => c.toMap()).toList()),
+      'replacements': jsonEncode(replacements.map((r) => r.toMap()).toList()),
     };
   }
 
@@ -393,6 +529,8 @@ class Asset {
       excludeFromDaily: (map['exclude_from_daily'] as int?) ?? 0,
       ownershipType: map['ownership_type'] as String? ?? 'buyout',
       renewals: _decodeRenewals(map['renewals'] as String?),
+      consumables: _decodeConsumables(map['consumables'] as String?),
+      replacements: _decodeReplacements(map['replacements'] as String?),
     );
   }
 
@@ -426,6 +564,32 @@ class Asset {
     }
   }
 
+  /// 解码耗材定义记录
+  static List<ConsumableRecord> _decodeConsumables(String? json) {
+    if (json == null || json.isEmpty) return [];
+    try {
+      final list = jsonDecode(json) as List;
+      return list
+          .map((e) => ConsumableRecord.fromMap(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// 解码耗材更换记录
+  static List<ReplacementRecord> _decodeReplacements(String? json) {
+    if (json == null || json.isEmpty) return [];
+    try {
+      final list = jsonDecode(json) as List;
+      return list
+          .map((e) => ReplacementRecord.fromMap(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// 复制并修改
   Asset copyWith({
     String? id,
@@ -449,6 +613,8 @@ class Asset {
     int? excludeFromDaily,
     String? ownershipType,
     List<RenewalRecord>? renewals,
+    List<ConsumableRecord>? consumables,
+    List<ReplacementRecord>? replacements,
   }) {
     return Asset(
       id: id ?? this.id,
@@ -472,6 +638,8 @@ class Asset {
       excludeFromDaily: excludeFromDaily ?? this.excludeFromDaily,
       ownershipType: ownershipType ?? this.ownershipType,
       renewals: renewals ?? this.renewals,
+      consumables: consumables ?? this.consumables,
+      replacements: replacements ?? this.replacements,
     );
   }
 

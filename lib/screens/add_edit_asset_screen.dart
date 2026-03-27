@@ -42,6 +42,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
   late int? avatarIconCodePoint;
   late String _ownershipType;
   late List<RenewalRecord> _renewals;
+  late List<ConsumableRecord> _consumables;
   List<String> _customTabs = [];
   List<String> _customCategories = ['未分类'];
   bool _isSaving = false;
@@ -88,6 +89,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     avatarIconCodePoint = widget.existingAsset?.avatarIconCodePoint;
     _ownershipType = widget.existingAsset?.ownershipType ?? 'buyout';
     _renewals = widget.existingAsset?.renewals.toList() ?? [];
+    _consumables = widget.existingAsset?.consumables.toList() ?? [];
 
     _loadCustomTabs();
     _loadCustomCategories();
@@ -402,6 +404,57 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
                 else
                   ..._renewals.map((renewal) => _buildRenewalCard(renewal)),
               ],
+              // 耗材管理区域
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '耗材管理（${_consumables.length} 项）',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
+                  TextButton.icon(
+                    icon: Icon(Icons.add),
+                    label: Text('添加耗材'),
+                    onPressed: _showAddConsumableDialog,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (_consumables.isEmpty)
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text('暂无耗材', style: TextStyle(color: Colors.grey)),
+                  ),
+                )
+              else
+                ..._consumables.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final c = entry.value;
+                  return Card(
+                    margin: EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text(c.name),
+                      subtitle: Text(
+                        '¥${c.price.toStringAsFixed(0)} / ${c.cycleDays}天',
+                      ),
+                      trailing: IconButton(
+                        icon: Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () {
+                          setState(() {
+                            _consumables.removeAt(i);
+                          });
+                        },
+                      ),
+                    ),
+                  );
+                }),
               // 标签选择器
               if (_customTabs.isNotEmpty) ...[
                 const Text(
@@ -672,6 +725,78 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     }
   }
 
+  Future<void> _showAddConsumableDialog() async {
+    final nameController = TextEditingController();
+    final priceController = TextEditingController();
+    final cycleController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('添加耗材'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: InputDecoration(
+                labelText: '耗材名称',
+                hintText: 'PP棉滤芯',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: priceController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: '单价',
+                prefixText: '¥ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: cycleController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: '更换周期（天）',
+                hintText: '180',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              final price = double.tryParse(priceController.text);
+              final cycle = int.tryParse(cycleController.text);
+              if (name.isNotEmpty && price != null && cycle != null) {
+                setState(() {
+                  _consumables.add(
+                    ConsumableRecord(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      name: name,
+                      price: price,
+                      cycleDays: cycle,
+                    ),
+                  );
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: Text('添加'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _saveAsset() async {
     if (_isSaving) return;
 
@@ -725,6 +850,8 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
         ownershipType: _ownershipType,
         expireDate: calculatedExpireDate,
         renewals: _renewals,
+        consumables: _consumables,
+        replacements: widget.existingAsset?.replacements ?? [],
         tags: selectedTags,
         excludeFromTotal: excludeFromTotal,
         excludeFromDaily: excludeFromDaily,

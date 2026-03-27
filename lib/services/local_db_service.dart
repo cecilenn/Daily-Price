@@ -36,7 +36,7 @@ class LocalDbService {
     // 打开数据库并创建表
     _db = await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -66,7 +66,9 @@ class LocalDbService {
         exclude_from_total INTEGER DEFAULT 0,
         exclude_from_daily INTEGER DEFAULT 0,
         ownership_type TEXT DEFAULT 'buyout',
-        renewals TEXT DEFAULT '[]'
+        renewals TEXT DEFAULT '[]',
+        consumables TEXT DEFAULT '[]',
+        replacements TEXT DEFAULT '[]'
       )
     ''');
     // 创建检查功能表
@@ -159,6 +161,29 @@ class LocalDbService {
         )
       ''');
       log('========== [LocalDb] V8 检查功能表创建完成 ==========');
+    }
+
+    // V8 -> V9: 添加耗材追踪字段
+    if (oldVersion < 9) {
+      // 先检查列是否存在
+      final columns = await db.rawQuery('PRAGMA table_info(assets)');
+      final columnNames = columns.map((c) => c['name'] as String).toSet();
+
+      // 新增 consumables 列（如果不存在）
+      if (!columnNames.contains('consumables')) {
+        await db.execute(
+          "ALTER TABLE assets ADD COLUMN consumables TEXT DEFAULT '[]'",
+        );
+      }
+
+      // 新增 replacements 列（如果不存在）
+      if (!columnNames.contains('replacements')) {
+        await db.execute(
+          "ALTER TABLE assets ADD COLUMN replacements TEXT DEFAULT '[]'",
+        );
+      }
+
+      log('========== [LocalDb] V9 耗材追踪字段升级完成 ==========');
     }
   }
 

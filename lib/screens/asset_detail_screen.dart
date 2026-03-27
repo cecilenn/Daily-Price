@@ -109,6 +109,12 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             const SizedBox(height: 8),
             // 其他信息卡片
             _buildInfoCard(asset),
+            const SizedBox(height: 8),
+            // 耗材管理区域
+            if (asset.hasConsumables) ...[
+              _buildConsumablesCard(asset),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 16),
             // V2.1: 底部删除按钮
             _buildDeleteButton(),
@@ -426,6 +432,245 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// 构建耗材管理卡片
+  Widget _buildConsumablesCard(Asset asset) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '耗材管理',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ...asset.consumables.map((c) {
+              final remaining = asset.getConsumableRemainingDays(c);
+              final isExpired = remaining < 0;
+              final isUrgent = remaining >= 0 && remaining <= 30;
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: Icon(
+                    isExpired ? Icons.warning : Icons.schedule,
+                    color: isExpired
+                        ? Colors.red
+                        : (isUrgent ? Colors.orange : Colors.green),
+                  ),
+                  title: Text(c.name),
+                  subtitle: Text(
+                    '周期: ${c.cycleDays}天 · 单价: ¥${c.price.toStringAsFixed(0)}',
+                  ),
+                  trailing: Text(
+                    isExpired ? '已过期${-remaining}天' : '剩余${remaining}天',
+                    style: TextStyle(
+                      color: isExpired
+                          ? Colors.red
+                          : (isUrgent ? Colors.orange : Colors.grey),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  onTap: () => _showConsumableDetail(c),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 显示耗材详情
+  void _showConsumableDetail(ConsumableRecord consumable) {
+    // 获取该耗材的所有更换记录
+    final records =
+        _currentAsset.replacements
+            .where((r) => r.consumableName == consumable.name)
+            .toList()
+          ..sort((a, b) => b.replacedAt.compareTo(a.replacedAt)); // 最新的在前
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (ctx, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 拖拽手柄
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // 耗材信息
+                Text(
+                  consumable.name,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '单价: ¥${consumable.price.toStringAsFixed(0)} · 周期: ${consumable.cycleDays}天',
+                ),
+                const SizedBox(height: 16),
+                // 标记更换按钮
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.build),
+                    label: const Text('标记已更换'),
+                    onPressed: () => _markReplaced(consumable),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // 更换记录
+                const Text(
+                  '更换记录',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (records.isEmpty)
+                  const Text('暂无更换记录', style: TextStyle(color: Colors.grey))
+                else
+                  ...records.map(
+                    (r) => ListTile(
+                      leading: const Icon(Icons.history),
+                      title: Text(_formatTimestamp(r.replacedAt)),
+                      subtitle: Text(
+                        '¥${r.price.toStringAsFixed(0)}${r.note?.isNotEmpty == true ? " · ${r.note}" : ""}',
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        onPressed: () => _deleteReplacement(r),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 标记更换
+  Future<void> _markReplaced(ConsumableRecord consumable) async {
+    final priceController = TextEditingController(
+      text: consumable.price.toStringAsFixed(0),
+    );
+    final noteController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('更换 ${consumable.name}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: priceController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '花费金额',
+                prefixText: '¥',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              decoration: const InputDecoration(
+                labelText: '备注（可选）',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认更换'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final record = ReplacementRecord(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        consumableName: consumable.name,
+        replacedAt: DateTime.now().millisecondsSinceEpoch,
+        price: double.tryParse(priceController.text) ?? consumable.price,
+        note: noteController.text.trim(),
+      );
+
+      final newReplacements = [..._currentAsset.replacements, record];
+      final updatedAsset = _currentAsset.copyWith(
+        replacements: newReplacements,
+      );
+      await context.read<AssetProvider>().saveAsset(updatedAsset);
+
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// 删除更换记录
+  Future<void> _deleteReplacement(ReplacementRecord record) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除记录'),
+        content: Text('确定删除 ${record.consumableName} 的更换记录？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final newReplacements = _currentAsset.replacements
+          .where((r) => r.id != record.id)
+          .toList();
+      final updatedAsset = _currentAsset.copyWith(
+        replacements: newReplacements,
+      );
+      await context.read<AssetProvider>().saveAsset(updatedAsset);
+      if (mounted) setState(() {});
+    }
   }
 
   /// 构建详情行

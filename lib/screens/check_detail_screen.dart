@@ -609,7 +609,7 @@ class _CheckDetailScreenState extends State<CheckDetailScreen> {
                 color: Theme.of(context).colorScheme.primary,
                 width: 2.5,
               )
-            : Border.all(color: Colors.transparent, width: 2.5),
+            : null,
         boxShadow: _isMultiSelectMode && isSelected
             ? [
                 BoxShadow(
