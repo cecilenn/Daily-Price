@@ -137,7 +137,9 @@ class ReplacementRecord {
 
   factory ReplacementRecord.fromMap(Map<String, dynamic> map) =>
       ReplacementRecord(
-        id: map['id'] as String,
+        id:
+            map['id'] as String? ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
         consumableName: map['consumable_name'] as String,
         replacedAt: map['replaced_at'] as int,
         price: (map['price'] as num).toDouble(),
@@ -452,28 +454,41 @@ class Asset {
   double get consumableDailyCost {
     if (consumables.isEmpty) return 0;
     return consumables.fold(0.0, (sum, c) {
-      final dailyCost = c.cycleDays > 0 ? c.price / c.cycleDays : 0;
+      // 按更换记录的平均价格计算，无记录则用基础价格
+      final records = replacements
+          .where((r) => r.consumableName == c.name)
+          .toList();
+      double avgPrice = c.price;
+      if (records.isNotEmpty) {
+        avgPrice = records.fold(0.0, (s, r) => s + r.price) / records.length;
+      }
+      final dailyCost = c.cycleDays > 0 ? avgPrice / c.cycleDays : 0;
       return sum + dailyCost;
     });
   }
 
   /// 获取某个耗材距上次更换已过的天数
-  int getConsumableDaysSinceReplacement(String consumableName) {
+  int getConsumableDaysSinceReplacement(
+    String consumableName,
+    int purchasedAt,
+  ) {
     final lastRecord = replacements
         .where((r) => r.consumableName == consumableName)
         .fold<ReplacementRecord?>(null, (latest, r) {
           if (latest == null || r.replacedAt > latest.replacedAt) return r;
           return latest;
         });
-    if (lastRecord == null) return 0;
+    final referenceTime = lastRecord?.replacedAt ?? purchasedAt;
     final now = DateTime.now().millisecondsSinceEpoch;
-    return ((now - lastRecord.replacedAt) / Duration.millisecondsPerDay)
-        .floor();
+    return ((now - referenceTime) / Duration.millisecondsPerDay).floor();
   }
 
   /// 获取某个耗材剩余天数（正数=剩余，负数=已过期）
   int getConsumableRemainingDays(ConsumableRecord consumable) {
-    final usedDays = getConsumableDaysSinceReplacement(consumable.name);
+    final usedDays = getConsumableDaysSinceReplacement(
+      consumable.name,
+      consumable.purchasedAt,
+    );
     return consumable.cycleDays - usedDays;
   }
 

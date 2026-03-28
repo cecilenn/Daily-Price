@@ -42,6 +42,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
   late String _ownershipType;
   late List<RenewalRecord> _renewals;
   late List<ConsumableRecord> _consumables;
+  List<ReplacementRecord> _replacements = [];
   bool _showConsumables = false;
   List<String> _customTabs = [];
   List<String> _customCategories = ['未分类'];
@@ -80,6 +81,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     _ownershipType = widget.existingAsset?.ownershipType ?? 'buyout';
     _renewals = widget.existingAsset?.renewals.toList() ?? [];
     _consumables = widget.existingAsset?.consumables.toList() ?? [];
+    _replacements = List.from(widget.existingAsset?.replacements ?? []);
     _showConsumables = _consumables.isNotEmpty;
 
     _loadCustomTabs();
@@ -458,9 +460,16 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
                 ..._consumables.asMap().entries.map((entry) {
                   final i = entry.key;
                   final c = entry.value;
+                  // 该耗材的更换记录（按日期倒序）
+                  final records =
+                      _replacements
+                          .where((r) => r.consumableName == c.name)
+                          .toList()
+                        ..sort((a, b) => b.replacedAt.compareTo(a.replacedAt));
+
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
+                    child: ExpansionTile(
                       title: Text(c.name),
                       subtitle: Text(
                         c.price > 0
@@ -480,11 +489,103 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
                               size: 20,
                               color: Colors.red,
                             ),
-                            onPressed: () =>
-                                setState(() => _consumables.removeAt(i)),
+                            onPressed: () => setState(() {
+                              _consumables.removeAt(i);
+                              // 同时删除该耗材的所有更换记录
+                              _replacements.removeWhere(
+                                (r) => r.consumableName == c.name,
+                              );
+                            }),
                           ),
                         ],
                       ),
+                      children: [
+                        // 购买日期
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '购买日期：${_formatDateFromTimestamp(c.purchasedAt)}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // 更换记录
+                        if (records.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text(
+                              '暂无更换记录',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
+                            ),
+                          )
+                        else
+                          ...records.map(
+                            (r) => ListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(
+                                left: 32,
+                                right: 8,
+                              ),
+                              leading: const Icon(Icons.history, size: 18),
+                              title: Text(
+                                _formatDateFromTimestamp(r.replacedAt),
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                              subtitle: Text(
+                                '¥${r.price.toStringAsFixed(0)}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, size: 16),
+                                    onPressed: () =>
+                                        _showEditReplacementDialog(c, r),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      size: 16,
+                                      color: Colors.red,
+                                    ),
+                                    onPressed: () => setState(() {
+                                      _replacements.removeWhere(
+                                        (rr) => rr.id == r.id,
+                                      );
+                                    }),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        // 添加更换记录按钮
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, bottom: 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text(
+                                '添加更换记录',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                              onPressed: () => _showAddReplacementDialog(c),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 }),
@@ -621,90 +722,60 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
 
   Future<void> _addRenewal() async {
     final priceController = TextEditingController();
-    int selectedUnit = 0; // 0=年, 1=月, 2=天
     final durationController = TextEditingController(text: '1');
     DateTime? selectedRenewalDate;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('添加续费记录'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DateTextField(
-                labelText: '续费日期',
-                initialDate: null,
-                onDateChanged: (date) {
-                  selectedRenewalDate = date;
-                },
-              ),
-              SizedBox(height: 12),
-              TextField(
-                controller: priceController,
-                decoration: InputDecoration(
-                  labelText: '续费金额',
-                  prefixText: '¥ ',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-              ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: durationController,
-                      decoration: InputDecoration(
-                        labelText: '时长',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  DropdownButton<int>(
-                    value: selectedUnit,
-                    items: [
-                      DropdownMenuItem(value: 0, child: Text('年')),
-                      DropdownMenuItem(value: 1, child: Text('月')),
-                      DropdownMenuItem(value: 2, child: Text('天')),
-                    ],
-                    onChanged: (v) =>
-                        setDialogState(() => selectedUnit = v ?? 0),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('取消'),
+      builder: (context) => AlertDialog(
+        title: Text('添加续费记录'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DateTextField(
+              labelText: '续费日期',
+              initialDate: null,
+              onDateChanged: (date) {
+                selectedRenewalDate = date;
+              },
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text('添加'),
+            SizedBox(height: 12),
+            TextField(
+              controller: priceController,
+              decoration: InputDecoration(
+                labelText: '续费金额',
+                prefixText: '¥ ',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: durationController,
+              decoration: InputDecoration(
+                labelText: '时长',
+                hintText: '1年、6个月、365天',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('添加'),
+          ),
+        ],
       ),
     );
 
     if (confirmed == true) {
       final price = double.tryParse(priceController.text) ?? 0;
-      final duration = int.tryParse(durationController.text) ?? 1;
-      int days;
-      switch (selectedUnit) {
-        case 0:
-          days = (duration * 365.25).round();
-          break;
-        case 1:
-          days = (duration * 30.44).round();
-          break;
-        default:
-          days = duration;
-      }
+      final days = Asset.parseExpectedDays(durationController.text);
+      if (days <= 0) return; // 无效输入不添加
 
       int renewalDate =
           selectedRenewalDate?.millisecondsSinceEpoch ??
@@ -768,10 +839,9 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: cycleController,
-                keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: '更换周期（天）',
-                  hintText: '180',
+                  labelText: '更换周期',
+                  hintText: '6个月、180天、1年',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -802,9 +872,12 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     if (confirmed == true) {
       final name = nameController.text.trim();
       final price = double.tryParse(priceController.text);
-      final cycle = int.tryParse(cycleController.text);
+      final cycleText = cycleController.text.trim();
+      final cycle = cycleText.isNotEmpty
+          ? Asset.parseExpectedDays(cycleText)
+          : 0;
       final purchasedAt = selectedPurchaseDate ?? DateTime.now();
-      if (name.isNotEmpty && cycle != null && cycle > 0) {
+      if (name.isNotEmpty && cycle > 0) {
         setState(() {
           _consumables.add(
             ConsumableRecord(
@@ -857,9 +930,9 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: cycleController,
-                keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: '更换周期（天）',
+                  labelText: '更换周期',
+                  hintText: '6个月、180天、1年',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -890,11 +963,14 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
     if (confirmed == true) {
       final name = nameController.text.trim();
       final price = double.tryParse(priceController.text);
-      final cycle = int.tryParse(cycleController.text);
+      final cycleText = cycleController.text.trim();
+      final cycle = cycleText.isNotEmpty
+          ? Asset.parseExpectedDays(cycleText)
+          : 0;
       final purchasedAt =
           selectedPurchaseDate ??
           DateTime.fromMillisecondsSinceEpoch(c.purchasedAt);
-      if (name.isNotEmpty && cycle != null && cycle > 0) {
+      if (name.isNotEmpty && cycle > 0) {
         setState(() {
           _consumables[index] = ConsumableRecord(
             id: c.id,
@@ -963,7 +1039,7 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
         expireDate: calculatedExpireDate,
         renewals: _renewals,
         consumables: _consumables,
-        replacements: widget.existingAsset?.replacements ?? [],
+        replacements: _replacements,
         tags: selectedTags,
         excludeFromTotal: excludeFromTotal,
         excludeFromDaily: excludeFromDaily,
@@ -986,6 +1062,135 @@ class _AddEditAssetScreenState extends State<AddEditAssetScreen> {
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _showAddReplacementDialog(ConsumableRecord consumable) async {
+    final priceController = TextEditingController(
+      text: consumable.price.toStringAsFixed(0),
+    );
+    DateTime? selectedDate;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('更换 ${consumable.name}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DateTextField(
+              labelText: '更换日期',
+              initialDate: null,
+              onDateChanged: (date) => selectedDate = date,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: priceController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: '花费金额',
+                prefixText: '¥ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final date = selectedDate ?? DateTime.now();
+      setState(() {
+        _replacements.add(
+          ReplacementRecord(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            consumableName: consumable.name,
+            replacedAt: date.millisecondsSinceEpoch,
+            price: double.tryParse(priceController.text) ?? consumable.price,
+            note: null,
+          ),
+        );
+      });
+    }
+  }
+
+  Future<void> _showEditReplacementDialog(
+    ConsumableRecord consumable,
+    ReplacementRecord record,
+  ) async {
+    final priceController = TextEditingController(
+      text: record.price.toStringAsFixed(0),
+    );
+    DateTime? selectedDate;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('编辑更换记录'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DateTextField(
+              labelText: '更换日期',
+              initialDate: DateTime.fromMillisecondsSinceEpoch(
+                record.replacedAt,
+              ),
+              onDateChanged: (date) => selectedDate = date,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: priceController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: '花费金额',
+                prefixText: '¥ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final date =
+          selectedDate ??
+          DateTime.fromMillisecondsSinceEpoch(record.replacedAt);
+      setState(() {
+        final idx = _replacements.indexWhere((r) => r.id == record.id);
+        if (idx >= 0) {
+          _replacements[idx] = ReplacementRecord(
+            id: record.id,
+            consumableName: record.consumableName,
+            replacedAt: date.millisecondsSinceEpoch,
+            price: double.tryParse(priceController.text) ?? record.price,
+            note: record.note,
+          );
+        }
+      });
     }
   }
 
