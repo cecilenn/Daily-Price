@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/app_provider.dart';
 import 'providers/asset_provider.dart';
 import 'providers/check_provider.dart';
+import 'features/inspection/providers/inspection_provider.dart';
 import 'screens/main_tab_screen.dart';
 import 'services/local_db_service.dart';
 
@@ -25,6 +26,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => AppProvider()),
         ChangeNotifierProvider(create: (_) => AssetProvider()..loadAssets()),
         ChangeNotifierProvider(create: (_) => CheckProvider()..loadSessions()),
+        ChangeNotifierProvider(create: (_) => InspectionProvider()..loadSessions()),
       ],
       child: const DailyPriceApp(),
     ),

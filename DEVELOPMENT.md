@@ -71,23 +71,44 @@ lib/
 │   ├── stats_calculator.dart         # 统计计算
 │   ├── time_formatter.dart           # 时长格式化
 │   └── pref_keys.dart                # 偏好设置键名常量
-└── widgets/
-    ├── asset_form_dialog.dart        # 资产表单对话框
-    ├── smart_asset_avatar.dart       # 智能头像组件
-    └── avatar_editor_sheet.dart      # 头像编辑器底部面板
+├── widgets/
+│   ├── asset_form_dialog.dart        # 资产表单对话框
+│   ├── smart_asset_avatar.dart       # 智能头像组件
+│   └── avatar_editor_sheet.dart      # 头像编辑器底部面板
+└── features/
+    └── inspection/                   # 特调检查模块（独立，易于拆分）
+        ├── models/
+        │   ├── company_asset.dart          # 公司资产模型
+        │   ├── company_check_session.dart  # 检查会话模型
+        │   └── company_check_item.dart     # 检查项模型
+        ├── data/
+        │   └── inspection_db.dart          # 独立数据库（inspection.db）
+        ├── services/
+        │   ├── webdav_config.dart          # WebDAV 配置（SharedPreferences）
+        │   └── webdav_service.dart         # WebDAV 客户端
+        ├── providers/
+        │   └── inspection_provider.dart    # 特调检查状态管理
+        └── screens/
+            ├── inspection_list_screen.dart    # 会话列表
+            ├── inspection_detail_screen.dart  # 检查详情
+            ├── inspection_scan_screen.dart    # 扫码录入/确认
+            ├── import_session_screen.dart     # 分享码导入
+            ├── webdav_config_screen.dart      # WebDAV 配置
+            └── asset_manage_screen.dart       # 本地资产管理
 ```
 
 ---
 
 ## 架构设计
 
-### 状态管理 — 三 Provider 架构
+### 状态管理 — 四 Provider 架构
 
 | Provider | 职责 |
 |----------|------|
 | `AppProvider` | 主题模式、日期格式等用户偏好 |
 | `AssetProvider` | 资产数据的加载、增删改、导入 |
 | `CheckProvider` | 检查任务的加载、创建、完成、删除 |
+| `InspectionProvider` | 特调检查（独立模块，WebDAV 同步 + 检查任务管理） |
 
 数据流：
 
@@ -133,6 +154,77 @@ Screen 层不再直接调用 LocalDbService，统一通过 Provider 操作。
 ## 数据库
 
 ### 当前版本：v8
+
+### 特调检查模块（独立数据库 inspection.db）
+
+#### company_assets 表
+
+```sql
+CREATE TABLE company_assets (
+  asset_code TEXT PRIMARY KEY,
+  asset_name TEXT NOT NULL DEFAULT '',
+  spec TEXT NOT NULL DEFAULT '',
+  department TEXT NOT NULL DEFAULT '',
+  user TEXT NOT NULL DEFAULT '',
+  location TEXT NOT NULL DEFAULT ''
+);
+```
+
+#### company_check_sessions 表
+
+```sql
+CREATE TABLE company_check_sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  status INTEGER NOT NULL DEFAULT 0
+);
+```
+
+#### company_check_items 表
+
+```sql
+CREATE TABLE company_check_items (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  asset_code TEXT NOT NULL,
+  asset_snapshot TEXT NOT NULL,
+  confirmed_at INTEGER,
+  FOREIGN KEY (session_id) REFERENCES company_check_sessions(id) ON DELETE CASCADE
+);
+```
+
+### 特调检查 — WebDAV 数据架构
+
+云端文件结构：
+
+```
+/webdav/
+  assets.json                  # 总资产主文件
+  sessions/
+    {shareCode}.json           # 分享的检查会话
+```
+
+总资产文件格式（通过 App 内"管理本地资产库"录入后上传）：
+
+```json
+[
+  {"资产编码":"EQ-001","资产名称":"联想笔记本","规格型号":"ThinkPad X1","使用部门":"技术部","使用人":"张三","存放位置":"A栋301室"}
+]
+```
+
+会话分享文件格式：
+
+```json
+{
+  "name": "2024春季展会盘点",
+  "createdAt": 1710000000000,
+  "assetCodes": ["EQ-001", "EQ-005"],
+  "confirmedCodes": ["EQ-001"]
+}
+```
+
+扫码流程：扫码得到资产编码 → 本地总资产库查找 → 填充详情到检查项。确认时仅比对资产编码，不走网络。
 
 ### assets 表
 

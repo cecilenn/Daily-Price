@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'analysis_screen.dart';
 import 'check_list_screen.dart';
+import '../features/inspection/screens/inspection_list_screen.dart';
 
 class FunctionHubScreen extends StatelessWidget {
   const FunctionHubScreen({super.key});
@@ -31,6 +32,18 @@ class FunctionHubScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const CheckListScreen()),
             ),
           ),
+          _buildFunctionCard(
+            context,
+            icon: Icons.inventory_2,
+            title: '特调检查',
+            subtitle: '设备资产云端盘点',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const InspectionListScreen(),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -43,15 +56,23 @@ class FunctionHubScreen extends StatelessWidget {
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: ListTile(
-        leading: Icon(icon, size: 32),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
-        contentPadding: const EdgeInsets.all(16),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 500),
+        child: Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: Icon(icon, size: 32),
+            title: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(subtitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onTap,
+            contentPadding: const EdgeInsets.all(16),
+          ),
+        ),
       ),
     );
   }
