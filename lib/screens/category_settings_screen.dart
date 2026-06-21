@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../models/asset_category.dart';
 import '../providers/asset_provider.dart';
+import '../services/asset_preferences_service.dart';
 
 /// 分类管理页面
 ///
@@ -29,8 +30,7 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
 
   /// 从 SharedPreferences 加载分类列表
   Future<void> _loadCategories() async {
-    final prefs = await SharedPreferences.getInstance();
-    final categories = prefs.getStringList('custom_categories') ?? ['未分类'];
+    final categories = await AssetPreferencesService.loadCustomCategories();
 
     if (mounted) {
       setState(() {
@@ -42,8 +42,7 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
 
   /// 保存分类列表到 SharedPreferences
   Future<void> _saveCategories() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('custom_categories', _categories);
+    await AssetPreferencesService.saveCustomCategories(_categories);
   }
 
   /// 添加新分类
@@ -82,12 +81,15 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
     );
 
     if (result != null && result.isNotEmpty) {
+      final category = AssetPreferencesService.normalizeCategorySelection(
+        result,
+      );
       // 检查是否已存在
-      if (_categories.contains(result)) {
+      if (_categories.contains(category)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('分类「$result」已存在'),
+              content: Text('分类「$category」已存在'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -96,14 +98,14 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
       }
 
       setState(() {
-        _categories.add(result);
+        _categories.add(category);
       });
       await _saveCategories();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('已添加分类「$result」'),
+            content: Text('已添加分类「$category」'),
             backgroundColor: Colors.green,
           ),
         );
@@ -113,8 +115,7 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
 
   /// 删除分类
   Future<void> _deleteCategory(String category) async {
-    // '未分类' 不可删除
-    if (category == '未分类') {
+    if (category == AssetCategory.uncategorized) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('「未分类」是内置分类，不可删除'),
@@ -164,9 +165,10 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
 
     if (confirmed == true) {
       try {
-        // 将该分类下的所有资产的 category 改为 '未分类'
         for (final asset in assetsInCategory) {
-          final updatedAsset = asset.copyWith(category: '未分类');
+          final updatedAsset = asset.copyWith(
+            category: AssetCategory.uncategorized,
+          );
           await provider.saveAsset(updatedAsset);
         }
 
@@ -176,13 +178,12 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
         });
         await _saveCategories();
 
-        // 如果当前默认启动分类是被删除的分类，重置为 '未分类'
-        final prefs = await SharedPreferences.getInstance();
-        final defaultStartupCategory = prefs.getString(
-          'default_startup_category',
-        );
+        final defaultStartupCategory =
+            await AssetPreferencesService.loadDefaultStartupCategory();
         if (defaultStartupCategory == category) {
-          await prefs.setString('default_startup_category', '未分类');
+          await AssetPreferencesService.saveDefaultStartupCategory(
+            AssetCategory.uncategorized,
+          );
         }
 
         if (mounted) {
@@ -232,16 +233,18 @@ class _CategorySettingsScreenState extends State<CategorySettingsScreen> {
                         for (int i = 0; i < _categories.length; i++) ...[
                           ListTile(
                             leading: Icon(
-                              _categories[i] == '未分类'
+                              _categories[i] == AssetCategory.uncategorized
                                   ? Icons.folder_outlined
                                   : Icons.folder,
-                              color: _categories[i] == '未分类'
+                              color:
+                                  _categories[i] == AssetCategory.uncategorized
                                   ? Colors.grey
                                   : Colors.blue,
                             ),
                             title: Text(_categories[i]),
                             subtitle: _getCategorySubtitle(_categories[i]),
-                            trailing: _categories[i] == '未分类'
+                            trailing:
+                                _categories[i] == AssetCategory.uncategorized
                                 ? const Chip(
                                     label: Text(
                                       '内置',

@@ -3,7 +3,12 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import '../models/asset.dart';
-import 'smart_asset_avatar.dart';
+import 'avatar_edit_result.dart';
+import 'avatar_color_picker.dart';
+import 'avatar_editor_options.dart';
+import 'avatar_editor_sections.dart';
+
+export 'avatar_edit_result.dart';
 
 /// AvatarEditorSheet V3.0 - 头像编辑器底部面板
 ///
@@ -54,36 +59,8 @@ class _AvatarEditorSheetState extends State<AvatarEditorSheet> {
   // 图片选择器
   final ImagePicker _imagePicker = ImagePicker();
 
-  // 预定义颜色矩阵 (11个高级纯色 + 1个自定义)
-  final List<Color> _presetColors = [
-    // 莫兰迪色系 (前6个)
-    const Color(0xFFB8A9C9), // 莫兰迪紫
-    const Color(0xFFA8C5D9), // 莫兰迪蓝
-    const Color(0xFF9DBF9E), // 莫兰迪绿
-    const Color(0xFFD4A5A5), // 莫兰迪粉
-    const Color(0xFFE6C9A8), // 莫兰迪杏
-    const Color(0xFFC9B8A8), // 莫兰迪棕
-    // Material 强调色 (接下来5个)
-    const Color(0xFF2196F3), // 蓝
-    const Color(0xFF4CAF50), // 绿
-    const Color(0xFFFF9800), // 橙
-    const Color(0xFFE91E63), // 粉
-    const Color(0xFF9C27B0), // 紫
-  ];
-
-  // 10个常用资产图标
-  final List<IconData> _assetIcons = [
-    Icons.computer,
-    Icons.phone_iphone,
-    Icons.camera_alt,
-    Icons.watch,
-    Icons.headphones,
-    Icons.videogame_asset,
-    Icons.fitness_center,
-    Icons.pedal_bike,
-    Icons.directions_car,
-    Icons.home,
-  ];
+  final List<Color> _presetColors = AvatarEditorOptions.presetColors;
+  final List<IconData> _assetIcons = AvatarEditorOptions.assetIcons;
 
   @override
   void initState() {
@@ -197,7 +174,7 @@ class _AvatarEditorSheetState extends State<AvatarEditorSheet> {
   // 选择预设颜色
   void _selectPresetColor(Color color) {
     setState(() {
-      _avatarBgColor = color.value;
+      _avatarBgColor = color.toARGB32();
     });
     _notifyChanged();
   }
@@ -230,7 +207,7 @@ class _AvatarEditorSheetState extends State<AvatarEditorSheet> {
           TextButton(
             onPressed: () {
               setState(() {
-                _avatarBgColor = tempColor.value;
+                _avatarBgColor = tempColor.toARGB32();
               });
               _notifyChanged();
               Navigator.pop(context);
@@ -345,30 +322,73 @@ class _AvatarEditorSheetState extends State<AvatarEditorSheet> {
                     const SizedBox(height: 16),
 
                     // 预览区
-                    _buildPreviewSection(),
+                    AvatarPreviewSection(asset: _previewAsset),
 
                     const SizedBox(height: 24),
 
                     // 照片控制层
-                    _buildPhotoControlSection(),
+                    AvatarPhotoControlSection(
+                      hasPhoto: _avatarPath != null,
+                      onTakePhoto: _takePhoto,
+                      onPickFromGallery: _pickFromGallery,
+                      onRemovePhoto: _removePhoto,
+                    ),
 
                     const SizedBox(height: 24),
 
                     // 虚拟形象切换层
-                    _buildVirtualModeSwitch(),
+                    AvatarModeSwitch(
+                      mode: _virtualMode,
+                      onTextSelected: () {
+                        setState(() {
+                          _virtualMode = 'text';
+                          _avatarIconCodePoint = null;
+                        });
+                        _notifyChanged();
+                      },
+                      onIconSelected: () {
+                        setState(() {
+                          _virtualMode = 'icon';
+                          if (_avatarIconCodePoint == null &&
+                              _assetIcons.isNotEmpty) {
+                            _avatarIconCodePoint = _assetIcons[0].codePoint;
+                          }
+                          _avatarPath = null;
+                        });
+                        _notifyChanged();
+                      },
+                    ),
 
                     const SizedBox(height: 16),
 
                     // 根据模式显示文字输入或图标选择
                     if (_virtualMode == 'text')
-                      _buildTextInputSection()
+                      AvatarTextInputSection(
+                        controller: _textController,
+                        onChanged: (value) {
+                          setState(() {
+                            _avatarPath = null;
+                            _avatarIconCodePoint = null;
+                          });
+                          _notifyChanged();
+                        },
+                      )
                     else
-                      _buildIconSelectionSection(),
+                      AvatarIconSelectionSection(
+                        icons: _assetIcons,
+                        selectedCodePoint: _avatarIconCodePoint,
+                        onIconSelected: _selectIcon,
+                      ),
 
                     const SizedBox(height: 24),
 
                     // 颜色选择层
-                    _buildColorSelectionSection(),
+                    AvatarColorSelectionSection(
+                      presetColors: _presetColors,
+                      selectedColorValue: _avatarBgColor,
+                      onPresetSelected: _selectPresetColor,
+                      onCustomColorPressed: _openCustomColorPicker,
+                    ),
 
                     const SizedBox(height: 32),
                   ],
@@ -379,420 +399,5 @@ class _AvatarEditorSheetState extends State<AvatarEditorSheet> {
         );
       },
     );
-  }
-
-  // 预览区
-  Widget _buildPreviewSection() {
-    return Center(
-      child: Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: SmartAssetAvatar(asset: _previewAsset, radius: 60),
-      ),
-    );
-  }
-
-  // 照片控制层
-  Widget _buildPhotoControlSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '照片',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionButton(
-                icon: Icons.camera_alt,
-                label: '拍照',
-                onTap: _takePhoto,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildActionButton(
-                icon: Icons.photo_library,
-                label: '相册',
-                onTap: _pickFromGallery,
-              ),
-            ),
-            if (_avatarPath != null) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildActionButton(
-                  icon: Icons.delete_outline,
-                  label: '移除',
-                  onTap: _removePhoto,
-                  isDestructive: true,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-
-  // 虚拟形象模式切换
-  Widget _buildVirtualModeSwitch() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '虚拟形象',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildModeButton(
-                  label: '文字',
-                  isSelected: _virtualMode == 'text',
-                  onTap: () {
-                    setState(() {
-                      _virtualMode = 'text';
-                      _avatarIconCodePoint = null;
-                      // 如果有照片，切换时保留
-                    });
-                    _notifyChanged();
-                  },
-                ),
-              ),
-              Expanded(
-                child: _buildModeButton(
-                  label: '图标',
-                  isSelected: _virtualMode == 'icon',
-                  onTap: () {
-                    setState(() {
-                      _virtualMode = 'icon';
-                      // 如果没有选中的图标，默认选第一个
-                      if (_avatarIconCodePoint == null &&
-                          _assetIcons.isNotEmpty) {
-                        _avatarIconCodePoint = _assetIcons[0].codePoint;
-                      }
-                      // 清除照片
-                      _avatarPath = null;
-                    });
-                    _notifyChanged();
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // 文字输入区
-  Widget _buildTextInputSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '自定义文字 (最多2个字符)',
-          style: TextStyle(fontSize: 14, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _textController,
-          maxLength: 2,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 20),
-          decoration: InputDecoration(
-            hintText: '输入1-2个字符',
-            counterText: '',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          onChanged: (value) {
-            setState(() {
-              // 清除照片和图标
-              _avatarPath = null;
-              _avatarIconCodePoint = null;
-            });
-            _notifyChanged();
-          },
-        ),
-      ],
-    );
-  }
-
-  // 图标选择区
-  Widget _buildIconSelectionSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('选择图标', style: TextStyle(fontSize: 14, color: Colors.grey)),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 60,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: _assetIcons.length,
-            itemBuilder: (context, index) {
-              final isSelected =
-                  _avatarIconCodePoint == _assetIcons[index].codePoint;
-              return Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: GestureDetector(
-                  onTap: () => _selectIcon(index),
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? Theme.of(context).primaryColor.withOpacity(0.2)
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(12),
-                      border: isSelected
-                          ? Border.all(
-                              color: Theme.of(context).primaryColor,
-                              width: 2,
-                            )
-                          : null,
-                    ),
-                    child: Icon(
-                      _assetIcons[index],
-                      color: isSelected
-                          ? Theme.of(context).primaryColor
-                          : Colors.grey[700],
-                      size: 28,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  // 颜色选择区
-  Widget _buildColorSelectionSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '背景颜色',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            // 11个预设颜色
-            for (int i = 0; i < _presetColors.length; i++)
-              _buildColorCircle(_presetColors[i]),
-            // 自定义颜色按钮
-            _buildCustomColorButton(),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // 构建操作按钮
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: isDestructive ? Colors.red.withOpacity(0.1) : Colors.grey[200],
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isDestructive ? Colors.red : Colors.grey[700],
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: isDestructive ? Colors.red : Colors.grey[700],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // 构建模式按钮
-  Widget _buildModeButton({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              color: isSelected ? Colors.black : Colors.grey[600],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 构建颜色圆圈
-  Widget _buildColorCircle(Color color) {
-    final isSelected = _avatarBgColor == color.value;
-    return GestureDetector(
-      onTap: () => _selectPresetColor(color),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: isSelected ? Border.all(color: Colors.white, width: 3) : null,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-            if (isSelected)
-              BoxShadow(
-                color: color.withOpacity(0.4),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-          ],
-        ),
-        child: isSelected
-            ? const Icon(Icons.check, color: Colors.white, size: 20)
-            : null,
-      ),
-    );
-  }
-
-  // 构建自定义颜色按钮
-  Widget _buildCustomColorButton() {
-    final isCustom =
-        _avatarBgColor != null &&
-        !_presetColors.any((c) => c.value == _avatarBgColor);
-
-    return GestureDetector(
-      onTap: _openCustomColorPicker,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [
-              Colors.red,
-              Colors.orange,
-              Colors.yellow,
-              Colors.green,
-              Colors.blue,
-              Colors.purple,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          shape: BoxShape.circle,
-          border: isCustom
-              ? Border.all(color: Colors.white, width: 3)
-              : Border.all(color: Colors.grey[300]!, width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: isCustom
-            ? Container(
-                decoration: BoxDecoration(
-                  color: Color(_avatarBgColor!),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check, color: Colors.white, size: 20),
-              )
-            : const Icon(Icons.add, color: Colors.white, size: 20),
-      ),
-    );
-  }
-}
-
-/// 头像编辑结果
-class AvatarEditResult {
-  final String? avatarPath;
-  final int? avatarBgColor;
-  final String? avatarText;
-  final int? avatarIconCodePoint;
-
-  const AvatarEditResult({
-    this.avatarPath,
-    this.avatarBgColor,
-    this.avatarText,
-    this.avatarIconCodePoint,
-  });
-
-  /// 转换为 Asset 字段的 Map
-  Map<String, dynamic> toAssetFields() {
-    return {
-      'avatar_path': avatarPath,
-      'avatar_bg_color': avatarBgColor,
-      'avatar_text': avatarText,
-      'avatar_icon_code_point': avatarIconCodePoint,
-    };
   }
 }

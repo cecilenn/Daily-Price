@@ -22,9 +22,9 @@ class TimeFormatter {
       case 'month':
         return '${(totalDays / 30).round()}月';
       case 'day':
-        return '${totalDays}天';
+        return '$totalDays天';
       default:
-        return '${totalDays}天';
+        return '$totalDays天';
     }
   }
 
@@ -35,9 +35,9 @@ class TimeFormatter {
     final days = (totalDays % 365) % 30;
 
     final parts = <String>[];
-    if (years > 0) parts.add('${years}年');
-    if (months > 0) parts.add('${months}月');
-    if (days > 0 || parts.isEmpty) parts.add('${days}天');
+    if (years > 0) parts.add('$years年');
+    if (months > 0) parts.add('$months月');
+    if (days > 0 || parts.isEmpty) parts.add('$days天');
     return parts.join();
   }
 
@@ -45,6 +45,6 @@ class TimeFormatter {
   static String _formatSmart(int totalDays) {
     if (totalDays >= 365) return '${(totalDays / 365).toStringAsFixed(1)}年';
     if (totalDays >= 30) return '${(totalDays / 30).round()}月';
-    return '${totalDays}天';
+    return '$totalDays天';
   }
 }

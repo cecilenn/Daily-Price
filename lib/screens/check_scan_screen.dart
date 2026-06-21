@@ -1,10 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import '../providers/check_provider.dart';
 import '../models/check_session.dart';
+import '../services/check_asset_snapshot_service.dart';
 
 enum ScanMode { entry, confirm }
 
@@ -46,21 +46,12 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
   }
 
   Future<void> _processBarcode(String rawValue) async {
-    Map<String, dynamic> assetData;
-    String assetId;
-
-    try {
-      assetData = jsonDecode(rawValue);
-      assetId = assetData['id'] as String;
-    } catch (_) {
-      assetId = rawValue;
-      assetData = {'id': assetId, 'assetName': '未知资产'};
-    }
+    final snapshot = CheckAssetSnapshotService.fromScannedValue(rawValue);
 
     if (widget.mode == ScanMode.entry) {
-      await _handleEntry(assetId, assetData);
+      await _handleEntry(snapshot.assetId, snapshot.data);
     } else {
-      await _handleConfirm(assetId, assetData);
+      await _handleConfirm(snapshot.assetId, snapshot.data);
     }
   }
 
@@ -69,11 +60,11 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
     Map<String, dynamic> assetData,
   ) async {
     final assetName = assetData['assetName'] as String? ?? '未知资产';
+    final provider = context.read<CheckProvider>();
 
     // 检查是否已在列表中
-    final existingItems = await context.read<CheckProvider>().getItems(
-      widget.sessionId,
-    );
+    final existingItems = await provider.getItems(widget.sessionId);
+    if (!mounted) return;
     final existing = existingItems
         .where((i) => i.assetId == assetId)
         .firstOrNull;
@@ -81,17 +72,18 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
     if (existing != null) {
       _showMessage('⚠️ $assetName 已在检查列表中');
       await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
       _scannerController.start();
       return;
     }
 
     // 添加到检查列表
-    final snapshotJson = jsonEncode(assetData);
-    final item = await context.read<CheckProvider>().addItem(
+    final item = await provider.addItem(
       sessionId: widget.sessionId,
       assetId: assetId,
-      assetSnapshot: snapshotJson,
+      assetSnapshot: CheckAssetSnapshotService.encode(assetData),
     );
+    if (!mounted) return;
 
     setState(() {
       _scannedItems.insert(0, item);
@@ -105,11 +97,11 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
     Map<String, dynamic> assetData,
   ) async {
     final assetName = assetData['assetName'] as String? ?? '未知资产';
+    final provider = context.read<CheckProvider>();
 
     // 在检查列表中查找
-    final existingItems = await context.read<CheckProvider>().getItems(
-      widget.sessionId,
-    );
+    final existingItems = await provider.getItems(widget.sessionId);
+    if (!mounted) return;
     final existing = existingItems
         .where((i) => i.assetId == assetId)
         .firstOrNull;
@@ -117,6 +109,7 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
     if (existing == null) {
       _showMessage('⚠️ $assetName 不在检查列表中');
       await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
       _scannerController.start();
       return;
     }
@@ -124,12 +117,14 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
     if (existing.isConfirmed) {
       _showMessage('⚠️ $assetName 已确认过');
       await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
       _scannerController.start();
       return;
     }
 
     // 确认
-    await context.read<CheckProvider>().confirmItem(existing.id);
+    await provider.confirmItem(existing.id);
+    if (!mounted) return;
 
     // 用确认后的快照数据（从 existing item 获取，而非从 QR 码）
     final confirmedSnapshotData = existing.snapshotData;
@@ -207,7 +202,7 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
     String checkItemId,
   ) {
     final assetName = data['assetName'] as String? ?? '未知资产';
-    final purchasePrice = data['purchasePrice'];
+    final purchasePrice = data['purchasePrice'] as num?;
     final purchaseDate = data['purchaseDate'] as int?;
     final category = data['category'] as String?;
     final status = data['status'] as int?;
@@ -271,7 +266,7 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
                       if (purchasePrice != null)
                         _buildDetailItem(
                           '购入价格',
-                          '¥${(purchasePrice as num).toStringAsFixed(2)}',
+                          '¥${purchasePrice.toStringAsFixed(2)}',
                         ),
                       if (purchaseDate != null)
                         _buildDetailItem(
@@ -289,8 +284,8 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
                               ? '已退役'
                               : '已卖出',
                         ),
-                      if (tags is List && (tags as List).isNotEmpty)
-                        _buildDetailItem('标签', (tags as List).join(', ')),
+                      if (tags is List && tags.isNotEmpty)
+                        _buildDetailItem('标签', tags.join(', ')),
                     ],
                   ),
                 ),
@@ -331,20 +326,6 @@ class _CheckScanScreenState extends State<CheckScanScreen> {
         ],
       ),
     );
-  }
-
-  bool _isItemConfirmed(String checkItemId) {
-    final item = _scannedItems.firstWhere(
-      (item) => item.id == checkItemId,
-      orElse: () => CheckItem(
-        id: '',
-        sessionId: '',
-        assetId: '',
-        assetSnapshot: '',
-        confirmedAt: null,
-      ),
-    );
-    return item.isConfirmed;
   }
 
   void _finishScanning() {

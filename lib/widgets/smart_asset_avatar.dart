@@ -101,10 +101,14 @@ class SmartAssetAvatar extends StatelessWidget {
     return CircleAvatar(
       radius: radius,
       backgroundColor: bgColor,
-      child: Icon(
-        IconData(asset.avatarIconCodePoint!, fontFamily: 'MaterialIcons'),
-        color: defaultTextColor,
-        size: radius * 1.2,
+      child: Text(
+        String.fromCharCode(asset.avatarIconCodePoint!),
+        style: TextStyle(
+          color: defaultTextColor,
+          fontFamily: 'MaterialIcons',
+          fontSize: radius * 1.2,
+          height: 1,
+        ),
       ),
     );
   }

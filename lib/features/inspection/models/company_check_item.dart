@@ -17,10 +17,21 @@ class CompanyCheckItem {
 
   bool get isConfirmed => confirmedAt != null;
 
-  Map<String, dynamic> get snapshotData =>
-      jsonDecode(assetSnapshot) as Map<String, dynamic>;
+  Map<String, dynamic> get snapshotData {
+    try {
+      final decoded = jsonDecode(assetSnapshot);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+    } catch (_) {}
+    return {'assetCode': assetCode, 'assetName': '未知资产'};
+  }
 
-  String get assetName => snapshotData['assetName'] ?? '未知资产';
+  String get assetName =>
+      snapshotData['assetName']?.toString() ??
+      snapshotData['asset_name']?.toString() ??
+      '未知资产';
 
   Map<String, dynamic> toMap() => {
     'id': id,
@@ -30,11 +41,12 @@ class CompanyCheckItem {
     'confirmed_at': confirmedAt,
   };
 
-  factory CompanyCheckItem.fromMap(Map<String, dynamic> map) => CompanyCheckItem(
-    id: map['id'] as String,
-    sessionId: map['session_id'] as String,
-    assetCode: map['asset_code'] as String,
-    assetSnapshot: map['asset_snapshot'] as String,
-    confirmedAt: map['confirmed_at'] as int?,
-  );
+  factory CompanyCheckItem.fromMap(Map<String, dynamic> map) =>
+      CompanyCheckItem(
+        id: map['id'] as String,
+        sessionId: map['session_id'] as String,
+        assetCode: map['asset_code'] as String,
+        assetSnapshot: map['asset_snapshot'] as String,
+        confirmedAt: map['confirmed_at'] as int?,
+      );
 }

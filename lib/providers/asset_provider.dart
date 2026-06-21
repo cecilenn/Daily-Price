@@ -62,6 +62,14 @@ class AssetProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// 全量替换本地资产
+  Future<int> replaceAssets(List<Asset> assets) async {
+    await LocalDbService().replaceAllAssets(assets);
+    _assets = await LocalDbService().getAllAssets();
+    notifyListeners();
+    return _assets.length;
+  }
+
   /// 切换置顶状态
   Future<void> togglePinned(Asset asset) async {
     final updated = asset.copyWith(isPinned: asset.isPinned == 0 ? 1 : 0);

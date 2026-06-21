@@ -17,13 +17,21 @@ class CompanyAsset {
 
   factory CompanyAsset.fromJson(Map<String, dynamic> json) {
     return CompanyAsset(
-      assetCode: json['资产编码']?.toString() ?? '',
-      assetName: json['资产名称']?.toString() ?? '',
-      spec: json['规格型号']?.toString() ?? '',
-      department: json['使用部门']?.toString() ?? '',
-      user: json['使用人']?.toString() ?? '',
-      location: json['存放位置']?.toString() ?? '',
+      assetCode: _read(json, ['资产编码', 'assetCode', 'asset_code', 'code']),
+      assetName: _read(json, ['资产名称', 'assetName', 'asset_name', 'name']),
+      spec: _read(json, ['规格型号', 'spec']),
+      department: _read(json, ['使用部门', 'department']),
+      user: _read(json, ['使用人', 'user', 'owner']),
+      location: _read(json, ['存放位置', 'location']),
     );
+  }
+
+  static String _read(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      final value = json[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return '';
   }
 
   Map<String, dynamic> toMap() => {

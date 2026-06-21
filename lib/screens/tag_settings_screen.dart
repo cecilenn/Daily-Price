@@ -2,8 +2,8 @@ import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/asset_provider.dart';
+import '../services/asset_preferences_service.dart';
 
 class TagSettingsScreen extends StatefulWidget {
   const TagSettingsScreen({super.key});
@@ -14,8 +14,6 @@ class TagSettingsScreen extends StatefulWidget {
 
 class _TagSettingsScreenState extends State<TagSettingsScreen> {
   List<String> _customTabs = [];
-  final String _customTabsPrefKey = 'custom_tabs';
-  final String _defaultCategoryPrefKey = 'default_startup_category';
 
   @override
   void initState() {
@@ -25,8 +23,8 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
 
   /// 加载自定义标签设置
   Future<void> _loadCustomTabs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final tabs = prefs.getStringList(_customTabsPrefKey) ?? [];
+    final tabs = await AssetPreferencesService.loadCustomTabs();
+    if (!mounted) return;
     setState(() {
       _customTabs = tabs;
     });
@@ -34,8 +32,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
 
   /// 保存自定义标签设置
   Future<void> _saveCustomTabs(List<String> tabs) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_customTabsPrefKey, tabs);
+    await AssetPreferencesService.saveCustomTabs(tabs);
     setState(() {
       _customTabs = tabs;
     });
@@ -97,6 +94,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
 
   /// 删除自定义标签
   Future<void> _removeCustomTab(String tab) async {
+    final provider = context.read<AssetProvider>();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -120,16 +118,15 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
       final customTabValue = 'custom_$tab';
 
       // 检查默认启动分栏是否是被删除的分栏
-      final prefs = await SharedPreferences.getInstance();
       final defaultCategory =
-          prefs.getString(_defaultCategoryPrefKey) ?? 'pinned';
+          await AssetPreferencesService.loadDefaultStartupCategory();
       if (defaultCategory == customTabValue) {
-        await prefs.setString(_defaultCategoryPrefKey, 'all');
+        await AssetPreferencesService.saveDefaultStartupCategory('all');
       }
 
       await _saveCustomTabs(newTabs);
 
-      final provider = context.read<AssetProvider>();
+      if (!mounted) return;
       int cleanCount = 0;
 
       for (final asset in provider.assets) {
@@ -298,7 +295,7 @@ class _TagSettingsScreenState extends State<TagSettingsScreen> {
                   }
                 }
 
-                if (mounted) {
+                if (context.mounted) {
                   Navigator.pop(context);
                   _showSuccess('成功同步 $updateCount 个资产的标签状态');
                   setState(() {});

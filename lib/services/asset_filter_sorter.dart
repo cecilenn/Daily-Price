@@ -1,10 +1,65 @@
 import 'package:flutter/material.dart';
 import '../models/asset.dart';
 
+class AssetFilterState {
+  final int? statusFilter;
+  final Set<String> selectedCategories;
+  final Set<String> selectedTags;
+  final RangeValues? priceRange;
+
+  const AssetFilterState({
+    this.statusFilter,
+    this.selectedCategories = const {},
+    this.selectedTags = const {},
+    this.priceRange,
+  });
+
+  bool get hasCategoryFilters => selectedCategories.isNotEmpty;
+  bool get hasTagFilters => selectedTags.isNotEmpty;
+
+  AssetFilterState withStatus(int? value) {
+    return AssetFilterState(
+      statusFilter: value,
+      selectedCategories: selectedCategories,
+      selectedTags: selectedTags,
+      priceRange: priceRange,
+    );
+  }
+
+  AssetFilterState withCategories(Set<String> value) {
+    return AssetFilterState(
+      statusFilter: statusFilter,
+      selectedCategories: Set.of(value),
+      selectedTags: selectedTags,
+      priceRange: priceRange,
+    );
+  }
+
+  AssetFilterState withTags(Set<String> value) {
+    return AssetFilterState(
+      statusFilter: statusFilter,
+      selectedCategories: selectedCategories,
+      selectedTags: Set.of(value),
+      priceRange: priceRange,
+    );
+  }
+
+  AssetFilterState withPriceRange(RangeValues? value) {
+    return AssetFilterState(
+      statusFilter: statusFilter,
+      selectedCategories: selectedCategories,
+      selectedTags: selectedTags,
+      priceRange: value,
+    );
+  }
+}
+
 /// 资产过滤与排序器
 ///
 /// 负责根据分栏和排序规则过滤并排序资产列表
 class AssetFilterSorter {
+  static const emptyFilter = AssetFilterState();
+
   /// 过滤并排序资产列表
   ///
   /// 参数：
@@ -12,7 +67,7 @@ class AssetFilterSorter {
   /// - category: 当前分栏
   ///   - 'all' → 全部
   ///   - 'pinned' → 置顶
-  ///   - 'physical'/'virtual'/'subscription' → 按分类
+  ///   - 其他值 → 按自定义分类
   ///   - 'custom_xxx' → 按自定义标签
   /// - sortBy: 排序字段 ('created_at', 'name', 'price', 'dailyCost', 'daysUsed')
   /// - ascending: 是否升序
@@ -37,7 +92,20 @@ class AssetFilterSorter {
     Set<String>? categoryFilters,
     Set<String>? tagFilters,
     RangeValues? priceRange,
+    AssetFilterState? filterState,
   }) {
+    final filters = filterState;
+    final effectiveStatusFilter = statusFilter ?? filters?.statusFilter;
+    final effectiveCategoryFilters =
+        categoryFilters ??
+        (filters?.hasCategoryFilters == true
+            ? filters!.selectedCategories
+            : null);
+    final effectiveTagFilters =
+        tagFilters ??
+        (filters?.hasTagFilters == true ? filters!.selectedTags : null);
+    final effectivePriceRange = priceRange ?? filters?.priceRange;
+
     List<Asset> filtered;
 
     // 1. 分栏过滤
@@ -60,29 +128,33 @@ class AssetFilterSorter {
     }
 
     // 3. 状态过滤
-    if (statusFilter != null) {
-      filtered = filtered.where((a) => a.status == statusFilter).toList();
+    if (effectiveStatusFilter != null) {
+      filtered = filtered
+          .where((a) => a.status == effectiveStatusFilter)
+          .toList();
     }
 
     // 4. 分类过滤
-    if (categoryFilters != null && categoryFilters.isNotEmpty) {
+    if (effectiveCategoryFilters != null &&
+        effectiveCategoryFilters.isNotEmpty) {
       filtered = filtered
-          .where((a) => categoryFilters.contains(a.category))
+          .where((a) => effectiveCategoryFilters.contains(a.category))
           .toList();
     }
 
     // 5. 标签过滤（资产包含任一选中标签即匹配）
-    if (tagFilters != null && tagFilters.isNotEmpty) {
+    if (effectiveTagFilters != null && effectiveTagFilters.isNotEmpty) {
       filtered = filtered
-          .where((a) => tagFilters.any((tag) => a.tags.contains(tag)))
+          .where((a) => effectiveTagFilters.any((tag) => a.tags.contains(tag)))
           .toList();
     }
 
     // 6. 价格区间过滤
-    if (priceRange != null) {
+    if (effectivePriceRange != null) {
       filtered = filtered.where((a) {
         final price = a.purchasePrice ?? 0;
-        return price >= priceRange.start && price <= priceRange.end;
+        return price >= effectivePriceRange.start &&
+            price <= effectivePriceRange.end;
       }).toList();
     }
 

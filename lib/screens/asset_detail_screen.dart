@@ -1,15 +1,12 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:gal/gal.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/asset.dart';
 import '../providers/asset_provider.dart';
-import '../utils/time_formatter.dart';
-import '../widgets/smart_asset_avatar.dart';
-import '../widgets/date_text_field.dart';
+import '../services/asset_share_service.dart';
+import '../widgets/asset_detail_cards.dart';
+import '../widgets/asset_detail_consumables.dart';
+import '../widgets/asset_qr_share_dialog.dart';
+import '../widgets/asset_record_dialogs.dart';
 import 'add_edit_asset_screen.dart';
 
 /// 资产详情页面 - V2.0 新增
@@ -30,7 +27,7 @@ class AssetDetailScreen extends StatefulWidget {
 
 class _AssetDetailScreenState extends State<AssetDetailScreen> {
   late Asset _currentAsset;
-  bool _isRefreshing = false;
+  final bool _isRefreshing = false;
 
   @override
   void initState() {
@@ -100,20 +97,23 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         child: Column(
           children: [
             // 顶部大图头像
-            _buildHeaderImage(asset),
+            AssetDetailHeaderImage(asset: asset),
             const SizedBox(height: 16),
             // 详情信息卡片
-            _buildDetailCard(asset),
+            AssetBasicInfoCard(asset: asset),
             const SizedBox(height: 8),
             // 状态信息卡片
-            _buildStatusCard(asset),
+            AssetStatusInfoCard(asset: asset),
             const SizedBox(height: 8),
             // 其他信息卡片
-            _buildInfoCard(asset),
+            AssetExtraInfoCard(asset: asset),
             const SizedBox(height: 8),
             // 耗材管理区域
             if (asset.hasConsumables) ...[
-              _buildConsumablesCard(asset),
+              AssetConsumablesCard(
+                asset: asset,
+                onConsumableTap: _showConsumableDetail,
+              ),
               const SizedBox(height: 8),
             ],
             const SizedBox(height: 16),
@@ -218,275 +218,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     }
   }
 
-  /// 构建顶部大图头像 - V3.0 使用 SmartAssetAvatar
-  Widget _buildHeaderImage(Asset asset) {
-    return Container(
-      width: double.infinity,
-      height: 250,
-      color: Colors.grey.shade200,
-      child: Center(
-        child: SmartAssetAvatar(
-          asset: asset,
-          radius: 80,
-          defaultBgColor: const Color(0xFFE0E0E0),
-        ),
-      ),
-    );
-  }
-
-  /// 构建详情信息卡片
-  Widget _buildDetailCard(Asset asset) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '基本信息',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            _buildDetailRow(
-              icon: Icons.inventory_2,
-              label: '资产名称',
-              value: asset.assetName,
-            ),
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.attach_money,
-              label: '购入价格',
-              value: '¥${(asset.purchasePrice ?? 0).toStringAsFixed(2)}',
-            ),
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.trending_up,
-              label: '当前日均',
-              value: '¥${asset.dailyCost.toStringAsFixed(2)}',
-            ),
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.category,
-              label: '资产分类',
-              value: _getCategoryName(asset.category),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 构建状态信息卡片
-  Widget _buildStatusCard(Asset asset) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '状态信息',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            _buildStatusRow(
-              icon: Icons.check_circle,
-              label: '资产状态',
-              value: _getStatusName(asset.status),
-              valueColor: _getStatusColor(asset.status),
-            ),
-            // 订阅资产：显示续费相关信息
-            if (asset.isSubscription) ...[
-              const Divider(height: 24),
-              _buildDetailRow(
-                icon: Icons.event_available,
-                label: '当前到期日',
-                value: asset.currentExpireDate != null
-                    ? _formatTimestamp(asset.currentExpireDate)
-                    : '未设置',
-              ),
-              const Divider(height: 24),
-              _buildDetailRow(
-                icon: Icons.timer,
-                label: '剩余天数',
-                value: asset.renewals.isNotEmpty
-                    ? '${asset.subscriptionRemainingDays} 天'
-                    : '无续费记录',
-              ),
-              const Divider(height: 24),
-              _buildDetailRow(
-                icon: Icons.attach_money,
-                label: '总续费金额',
-                value: '¥${asset.totalRenewalCost.toStringAsFixed(2)}',
-              ),
-              const Divider(height: 24),
-              _buildDetailRow(
-                icon: Icons.history,
-                label: '续费记录',
-                value: '${asset.renewals.length} 条',
-              ),
-            ] else ...[
-              // 买断资产：显示预计使用天数
-              const Divider(height: 24),
-              FutureBuilder<String>(
-                future: _getFormattedDays(asset.expectedLifespanDays),
-                builder: (context, snapshot) {
-                  return _buildDetailRow(
-                    icon: Icons.timelapse,
-                    label: '预计使用',
-                    value:
-                        snapshot.data ??
-                        (asset.expectedLifespanDays != null
-                            ? '${asset.expectedLifespanDays} 天'
-                            : '未设置'),
-                  );
-                },
-              ),
-            ],
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.event,
-              label: '购买日期',
-              value: _formatTimestamp(asset.purchaseDate),
-            ),
-            if (asset.status == 1 || asset.status == 2) ...[
-              const Divider(height: 24),
-              _buildDetailRow(
-                icon: Icons.event_available,
-                label: asset.status == 2 ? '卖出日期' : '退役日期',
-                value: _formatTimestamp(asset.soldDate),
-              ),
-            ],
-            if (asset.status == 2 && asset.soldPrice != null) ...[
-              const Divider(height: 24),
-              _buildDetailRow(
-                icon: Icons.sell,
-                label: '卖出价格',
-                value: '¥${asset.soldPrice!.toStringAsFixed(2)}',
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 构建其他信息卡片
-  Widget _buildInfoCard(Asset asset) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '其他信息',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            _buildDetailRow(
-              icon: Icons.push_pin,
-              label: '置顶状态',
-              value: asset.isPinned == 1 ? '已置顶' : '未置顶',
-            ),
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.account_balance_wallet,
-              label: '不计入总资产',
-              value: asset.excludeFromTotal == 1 ? '是' : '否',
-            ),
-            const Divider(height: 24),
-            _buildDetailRow(
-              icon: Icons.trending_down,
-              label: '不计入日均',
-              value: asset.excludeFromDaily == 1 ? '是' : '否',
-            ),
-            if (asset.tags.isNotEmpty) ...[
-              const Divider(height: 24),
-              const Text(
-                '标签',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: asset.tags.map((tag) {
-                  final displayTag = tag.startsWith('custom_')
-                      ? tag.substring(7)
-                      : tag;
-                  return Chip(
-                    label: Text(displayTag),
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  );
-                }).toList(),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 构建耗材管理卡片
-  Widget _buildConsumablesCard(Asset asset) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '耗材管理',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...asset.consumables.map((c) {
-              final remaining = asset.getConsumableRemainingDays(c);
-              final isExpired = remaining < 0;
-              final isUrgent = remaining >= 0 && remaining <= 30;
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: Icon(
-                    isExpired ? Icons.warning : Icons.schedule,
-                    color: isExpired
-                        ? Colors.red
-                        : (isUrgent ? Colors.orange : Colors.green),
-                  ),
-                  title: Text(c.name),
-                  subtitle: Text(
-                    '周期: ${c.cycleDays}天 · 单价: ¥${c.price.toStringAsFixed(0)}',
-                  ),
-                  trailing: Text(
-                    isExpired ? '已过期${-remaining}天' : '剩余${remaining}天',
-                    style: TextStyle(
-                      color: isExpired
-                          ? Colors.red
-                          : (isUrgent ? Colors.orange : Colors.grey),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  onTap: () => _showConsumableDetail(c),
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// 显示耗材详情
   void _showConsumableDetail(ConsumableRecord consumable) {
     showModalBottomSheet(
@@ -501,83 +232,12 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           controller: scrollController,
           child: StatefulBuilder(
             builder: (context, setSheetState) {
-              final records =
-                  _currentAsset.replacements
-                      .where((r) => r.consumableName == consumable.name)
-                      .toList()
-                    ..sort((a, b) => b.replacedAt.compareTo(a.replacedAt));
-
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 拖拽手柄
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // 耗材信息
-                    Text(
-                      consumable.name,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '单价: ¥${consumable.price.toStringAsFixed(0)} · 周期: ${consumable.cycleDays}天',
-                    ),
-                    const SizedBox(height: 16),
-                    // 标记更换按钮
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.build),
-                        label: const Text('标记已更换'),
-                        onPressed: () async {
-                          await _markReplaced(consumable, setSheetState);
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // 更换记录
-                    const Text(
-                      '更换记录',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (records.isEmpty)
-                      const Text('暂无更换记录', style: TextStyle(color: Colors.grey))
-                    else
-                      ...records.map(
-                        (r) => ListTile(
-                          leading: const Icon(Icons.history),
-                          title: Text(_formatTimestamp(r.replacedAt)),
-                          subtitle: Text(
-                            '¥${r.price.toStringAsFixed(0)}${r.note?.isNotEmpty == true ? " · ${r.note}" : ""}',
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, size: 20),
-                            onPressed: () async {
-                              await _deleteReplacement(r, setSheetState);
-                            },
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+              return AssetConsumableDetailSheet(
+                asset: _currentAsset,
+                consumable: consumable,
+                onMarkReplaced: () => _markReplaced(consumable, setSheetState),
+                onDeleteReplacement: (record) =>
+                    _deleteReplacement(record, setSheetState),
               );
             },
           ),
@@ -591,64 +251,27 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     ConsumableRecord consumable,
     StateSetter? setSheetState,
   ) async {
-    final priceController = TextEditingController(
-      text: consumable.price.toStringAsFixed(0),
+    final result = await showReplacementDialog(
+      context,
+      title: '更换 ${consumable.name}',
+      initialPrice: consumable.price,
+      confirmLabel: '确认更换',
     );
-    DateTime? selectedDate;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('更换 ${consumable.name}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DateTextField(
-              labelText: '更换日期',
-              initialDate: null,
-              onDateChanged: (date) => selectedDate = date,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: priceController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(
-                labelText: '花费金额',
-                prefixText: '¥ ',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('确认更换'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      final date = selectedDate ?? DateTime.now();
+    if (result != null) {
+      if (!mounted) return;
       final record = ReplacementRecord(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         consumableName: consumable.name,
-        replacedAt: date.millisecondsSinceEpoch,
-        price: double.tryParse(priceController.text) ?? consumable.price,
+        replacedAt: result.replacedAt.millisecondsSinceEpoch,
+        price: result.price,
         note: null,
       );
       final newReplacements = [..._currentAsset.replacements, record];
       final updatedAsset = _currentAsset.copyWith(
         replacements: newReplacements,
       );
-      await context.read<AssetProvider>().saveAsset(updatedAsset);
+      final provider = context.read<AssetProvider>();
+      await provider.saveAsset(updatedAsset);
       if (mounted) {
         setState(() {
           _currentAsset = updatedAsset;
@@ -683,13 +306,15 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
 
     if (confirmed == true) {
+      if (!mounted) return;
       final newReplacements = _currentAsset.replacements
           .where((r) => r.id != record.id)
           .toList();
       final updatedAsset = _currentAsset.copyWith(
         replacements: newReplacements,
       );
-      await context.read<AssetProvider>().saveAsset(updatedAsset);
+      final provider = context.read<AssetProvider>();
+      await provider.saveAsset(updatedAsset);
       if (mounted) {
         setState(() {
           _currentAsset = updatedAsset;
@@ -699,240 +324,17 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     }
   }
 
-  /// 构建详情行
-  Widget _buildDetailRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: Colors.grey.shade600),
-        const SizedBox(width: 12),
-        Text(
-          '$label: ',
-          style: const TextStyle(fontSize: 14, color: Colors.grey),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-            textAlign: TextAlign.right,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 构建状态行
-  Widget _buildStatusRow({
-    required IconData icon,
-    required String label,
-    required String value,
-    Color? valueColor,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: Colors.grey.shade600),
-        const SizedBox(width: 12),
-        Text(
-          '$label: ',
-          style: const TextStyle(fontSize: 14, color: Colors.grey),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: valueColor ?? Colors.black87,
-            ),
-            textAlign: TextAlign.right,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 获取分类名称
-  String _getCategoryName(String category) {
-    switch (category) {
-      case 'physical':
-        return '实体资产';
-      case 'virtual':
-        return '虚拟资产';
-      case 'subscription':
-        return '限时资产';
-      default:
-        return category;
-    }
-  }
-
-  /// 获取状态名称
-  String _getStatusName(int status) {
-    switch (status) {
-      case 0:
-        return '服役中';
-      case 1:
-        return '已退役';
-      case 2:
-        return '已卖出';
-      default:
-        return '未知';
-    }
-  }
-
-  /// 获取状态颜色
-  Color _getStatusColor(int status) {
-    switch (status) {
-      case 0:
-        return Colors.green;
-      case 1:
-        return Colors.grey;
-      case 2:
-        return Colors.purple;
-      default:
-        return Colors.black87;
-    }
-  }
-
-  /// 格式化时间戳
-  String _formatTimestamp(int? timestamp) {
-    if (timestamp == null) return '-';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
-  /// 获取格式化的天数
-  Future<String> _getFormattedDays(int? days) async {
-    if (days == null) return Future.value('');
-    final prefs = await SharedPreferences.getInstance();
-    final mode = prefs.getString('time_display_mode') ?? 'auto';
-    return TimeFormatter.formatDays(days, mode: mode);
-  }
-
   // ========== V2.1: 分享功能 ==========
 
   /// 处理分享按钮点击 - V2.1 体验修复：解耦二维码展示与保存动作
   Future<void> _handleShareAsset() async {
-    // 第一步：直接弹出二维码对话框（面对面分享，不涉及权限申请）
-    final jsonData = _serializeAssetToJson(_currentAsset);
-    if (mounted) {
-      await _showQRCodeDialog(jsonData);
-    }
-  }
-
-  /// 将资产序列化为 JSON（保留 id 用于去重，仅剔除本地失效的 avatarPath）
-  String _serializeAssetToJson(Asset asset) {
-    final Map<String, dynamic> data = {
-      'id': asset.id, // V2.1: 保留 id 用于扫码去重
-      'assetName': asset.assetName,
-      'purchasePrice': asset.purchasePrice,
-      'purchaseDate': asset.purchaseDate,
-      'expectedLifespanDays': asset.expectedLifespanDays,
-      'status': asset.status,
-      'category': asset.category,
-      'tags': asset.tags,
-      'excludeFromTotal': asset.excludeFromTotal,
-      'excludeFromDaily': asset.excludeFromDaily,
-      'soldPrice': asset.soldPrice,
-      'soldDate': asset.soldDate,
-      'createdAt': asset.createdAt,
-      'isPinned': asset.isPinned,
-      // 耗材（最多 10 个，防止 QR 码过大）
-      if (asset.hasConsumables)
-        'consumables': asset.consumables
-            .take(10)
-            .map(
-              (c) => {
-                'name': c.name,
-                'price': c.price,
-                'cycle_days': c.cycleDays,
-                'purchased_at': c.purchasedAt,
-              },
-            )
-            .toList(),
-      // 更换记录（最多 20 条，防止 QR 码过大）
-      if (asset.replacements.isNotEmpty)
-        'replacements': asset.replacements
-            .take(20)
-            .map(
-              (r) => {
-                'consumable_name': r.consumableName,
-                'replaced_at': r.replacedAt,
-                'price': r.price,
-              },
-            )
-            .toList(),
-      // 注意：不包含 avatarPath（本地路径在其他设备上无效）
-      // 注意：QR 码中不导出 purchasedAt、updatedAt、id 等——扫码录入时这些由接收方重新生成
-    };
-    return jsonEncode(data);
-  }
-
-  /// 显示二维码对话框 - 包含手动保存按钮
-  Future<void> _showQRCodeDialog(String jsonData) async {
-    final ScreenshotController screenshotController = ScreenshotController();
-    bool? saveSuccess;
-
-    // 根据 JSON 长度动态调整 QR 码大小
-    final qrSize = jsonData.length > 800
-        ? 300.0
-        : (jsonData.length > 400 ? 280.0 : 260.0);
-
-    await showDialog(
+    final saveSuccess = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('分享资产'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 二维码区域：使用 Screenshot 包裹，白色背景防止相册背景变黑
-              SizedBox(
-                width: qrSize,
-                height: qrSize,
-                child: Screenshot(
-                  controller: screenshotController,
-                  child: Container(
-                    color: Colors.white,
-                    padding: const EdgeInsets.all(16),
-                    child: QrImageView(
-                      data: jsonData,
-                      version: QrVersions.auto,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // 第二步：手动保存按钮
-              ElevatedButton.icon(
-                onPressed: () async {
-                  saveSuccess = await _saveQRCodeToGallery(
-                    screenshotController,
-                  );
-                  if (saveSuccess == true && dialogContext.mounted) {
-                    Navigator.pop(dialogContext);
-                  }
-                },
-                icon: const Icon(Icons.save_alt),
-                label: const Text('保存到相册'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('关闭'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AssetQrShareDialog(
+        jsonData: AssetShareService.serializeToQrJson(_currentAsset),
+      ),
     );
 
-    // 对话框关闭后显示反馈（避免 BuildContext 跨异步间隙问题）
     if (mounted && saveSuccess != null) {
       if (saveSuccess == true) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -946,30 +348,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           const SnackBar(content: Text('保存失败'), backgroundColor: Colors.red),
         );
       }
-    }
-  }
-
-  /// 保存二维码到相册 - 使用 gal 插件处理权限
-  /// 返回 true 表示保存成功，false 表示失败
-  Future<bool> _saveQRCodeToGallery(
-    ScreenshotController screenshotController,
-  ) async {
-    try {
-      // 权限申请：使用 gal 插件的内置权限管理
-      final hasAccess = await Gal.hasAccess(toAlbum: true);
-      if (!hasAccess) {
-        await Gal.requestAccess(toAlbum: true);
-      }
-
-      // 截图并保存
-      final bytes = await screenshotController.capture();
-      if (bytes != null) {
-        await Gal.putImageBytes(bytes);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      return false;
     }
   }
 
@@ -1003,7 +381,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     if (confirmed == true) {
       try {
         // 通过 Provider 删除资产
-        await context.read<AssetProvider>().deleteAsset(_currentAsset.id);
+        if (!mounted) return;
+        final provider = context.read<AssetProvider>();
+        await provider.deleteAsset(_currentAsset.id);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

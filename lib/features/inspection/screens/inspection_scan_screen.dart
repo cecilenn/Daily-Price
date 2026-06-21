@@ -1,10 +1,12 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import '../providers/inspection_provider.dart';
 import '../models/company_check_item.dart';
+import '../services/inspection_asset_code_parser.dart';
 
 enum InspectionScanMode { entry, confirm }
 
@@ -45,22 +47,14 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
     _isProcessing = false;
   }
 
-  /// 解析扫码结果，提取资产编码
-  /// 支持：纯文本编码、JSON（含"资产编码"字段）
-  String _parseAssetCode(String rawValue) {
-    try {
-      final data = jsonDecode(rawValue);
-      if (data is Map<String, dynamic>) {
-        return (data['资产编码'] ?? data['assetCode'] ?? data['id'])
-            .toString();
-      }
-    } catch (_) {}
-    // 纯文本当作资产编码
-    return rawValue.trim();
-  }
-
   Future<void> _processBarcode(String rawValue) async {
-    final assetCode = _parseAssetCode(rawValue);
+    final assetCode = InspectionAssetCodeParser.parse(rawValue);
+    if (assetCode == null) {
+      _showMessage('无法识别资产编码');
+      await Future.delayed(const Duration(milliseconds: 800));
+      _scannerController.start();
+      return;
+    }
 
     if (widget.mode == InspectionScanMode.entry) {
       await _handleEntry(assetCode);
@@ -220,8 +214,7 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
         builder: (ctx, scrollController) => Container(
           decoration: BoxDecoration(
             color: Theme.of(context).scaffoldBackgroundColor,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(20)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Column(
             children: [
@@ -251,8 +244,7 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
                       item.isConfirmed
                           ? Icons.check_circle
                           : Icons.circle_outlined,
-                      color:
-                          item.isConfirmed ? Colors.green : Colors.red,
+                      color: item.isConfirmed ? Colors.green : Colors.red,
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
@@ -272,24 +264,16 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
                       _buildDetailItem('资产编码', item.assetCode),
                       if (snapshot['spec'] != null &&
                           snapshot['spec'].toString().isNotEmpty)
-                        _buildDetailItem(
-                            '规格型号', snapshot['spec']),
+                        _buildDetailItem('规格型号', snapshot['spec']),
                       if (snapshot['department'] != null &&
-                          snapshot['department']
-                              .toString()
-                              .isNotEmpty)
-                        _buildDetailItem(
-                            '使用部门', snapshot['department']),
+                          snapshot['department'].toString().isNotEmpty)
+                        _buildDetailItem('使用部门', snapshot['department']),
                       if (snapshot['user'] != null &&
                           snapshot['user'].toString().isNotEmpty)
-                        _buildDetailItem(
-                            '使用人', snapshot['user']),
+                        _buildDetailItem('使用人', snapshot['user']),
                       if (snapshot['location'] != null &&
-                          snapshot['location']
-                              .toString()
-                              .isNotEmpty)
-                        _buildDetailItem(
-                            '存放位置', snapshot['location']),
+                          snapshot['location'].toString().isNotEmpty)
+                        _buildDetailItem('存放位置', snapshot['location']),
                     ],
                   ),
                 ),
@@ -319,10 +303,7 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -338,11 +319,7 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.mode == InspectionScanMode.entry
-              ? '扫码录入'
-              : '扫码确认',
-        ),
+        title: Text(widget.mode == InspectionScanMode.entry ? '扫码录入' : '扫码确认'),
         centerTitle: true,
         actions: [
           IconButton(
@@ -350,10 +327,7 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
             onPressed: _pickImageFromGallery,
             tooltip: '从相册识别',
           ),
-          TextButton(
-            onPressed: _finishScanning,
-            child: const Text('完成'),
-          ),
+          TextButton(onPressed: _finishScanning, child: const Text('完成')),
         ],
       ),
       body: Column(
@@ -370,10 +344,7 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
             padding: const EdgeInsets.all(16),
             child: Text(
               '已扫描：${_scannedItems.length} 个资产',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -417,11 +388,8 @@ class _InspectionScanScreenState extends State<InspectionScanScreen> {
                   ),
                 ),
                 Icon(
-                  item.isConfirmed
-                      ? Icons.check_circle
-                      : Icons.circle_outlined,
-                  color:
-                      item.isConfirmed ? Colors.green : Colors.red,
+                  item.isConfirmed ? Icons.check_circle : Icons.circle_outlined,
+                  color: item.isConfirmed ? Colors.green : Colors.red,
                 ),
               ],
             ),

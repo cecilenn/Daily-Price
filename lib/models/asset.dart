@@ -1,151 +1,11 @@
 import 'dart:convert';
-import 'package:intl/intl.dart';
+import '../utils/asset_input_parser.dart';
+import 'asset_category.dart';
+import 'asset_records.dart';
 
-/// 续费记录
-class RenewalRecord {
-  final String id;
-  final int renewalDate; // 续费日期时间戳（毫秒）
-  final double price; // 本次续费金额
-  final int durationDays; // 本次订阅天数
+export 'asset_records.dart';
 
-  const RenewalRecord({
-    required this.id,
-    required this.renewalDate,
-    required this.price,
-    required this.durationDays,
-  });
-
-  /// 本次到期日
-  int get expireDate =>
-      renewalDate + Duration(days: durationDays).inMilliseconds;
-
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'renewal_date': renewalDate,
-    'price': price,
-    'duration_days': durationDays,
-  };
-
-  factory RenewalRecord.fromMap(Map<String, dynamic> map) => RenewalRecord(
-    id: map['id'] as String,
-    renewalDate: map['renewal_date'] as int,
-    price: (map['price'] as num).toDouble(),
-    durationDays: map['duration_days'] as int,
-  );
-
-  RenewalRecord copyWith({
-    String? id,
-    int? renewalDate,
-    double? price,
-    int? durationDays,
-  }) => RenewalRecord(
-    id: id ?? this.id,
-    renewalDate: renewalDate ?? this.renewalDate,
-    price: price ?? this.price,
-    durationDays: durationDays ?? this.durationDays,
-  );
-}
-
-/// 耗材定义记录
-class ConsumableRecord {
-  final String id;
-  final String name; // "PP棉滤芯"
-  final double price; // 50.0（单次更换价格）
-  final int cycleDays; // 180（更换周期天数，如6个月=180天）
-  final int purchasedAt; // 购买/安装日期时间戳（毫秒）
-  final int updatedAt; // 最后修改时间戳（毫秒）
-
-  const ConsumableRecord({
-    required this.id,
-    required this.name,
-    required this.price,
-    required this.cycleDays,
-    required this.purchasedAt,
-    required this.updatedAt,
-  });
-
-  /// 日均成本
-  double get dailyCost => (cycleDays > 0 && price > 0) ? price / cycleDays : 0;
-
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'name': name,
-    'price': price,
-    'cycle_days': cycleDays,
-    'purchased_at': purchasedAt,
-    'updated_at': updatedAt,
-  };
-
-  factory ConsumableRecord.fromMap(Map<String, dynamic> map) =>
-      ConsumableRecord(
-        id:
-            map['id'] as String? ??
-            DateTime.now().millisecondsSinceEpoch.toString(),
-        name: map['name'] as String,
-        price: (map['price'] as num).toDouble(),
-        cycleDays: map['cycle_days'] as int? ?? map['cycleDays'] as int? ?? 0,
-        purchasedAt:
-            (map['purchased_at'] as int?) ??
-            (map['purchasedAt'] as int?) ??
-            DateTime.now().millisecondsSinceEpoch,
-        updatedAt:
-            (map['updated_at'] as int?) ??
-            (map['updatedAt'] as int?) ??
-            DateTime.now().millisecondsSinceEpoch,
-      );
-
-  ConsumableRecord copyWith({
-    String? id,
-    String? name,
-    double? price,
-    int? cycleDays,
-    int? purchasedAt,
-    int? updatedAt,
-  }) => ConsumableRecord(
-    id: id ?? this.id,
-    name: name ?? this.name,
-    price: price ?? this.price,
-    cycleDays: cycleDays ?? this.cycleDays,
-    purchasedAt: purchasedAt ?? this.purchasedAt,
-    updatedAt: updatedAt ?? this.updatedAt,
-  );
-}
-
-/// 耗材更换记录
-class ReplacementRecord {
-  final String id;
-  final String consumableName; // "PP棉滤芯"
-  final int replacedAt; // 更换日期时间戳（毫秒）
-  final double price; // 实际花费
-  final String? note; // 备注（可选）
-
-  const ReplacementRecord({
-    required this.id,
-    required this.consumableName,
-    required this.replacedAt,
-    required this.price,
-    this.note,
-  });
-
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'consumable_name': consumableName,
-    'replaced_at': replacedAt,
-    'price': price,
-    'note': note ?? '',
-  };
-
-  factory ReplacementRecord.fromMap(Map<String, dynamic> map) =>
-      ReplacementRecord(
-        id:
-            map['id'] as String? ??
-            DateTime.now().millisecondsSinceEpoch.toString(),
-        consumableName: map['consumable_name'] as String,
-        replacedAt: map['replaced_at'] as int,
-        price: (map['price'] as num).toDouble(),
-        note: map['note'] as String?,
-      );
-}
+part 'asset_metrics.dart';
 
 /// 资产模型 V2.0 - 用于记录个人资产折旧与价值平摊
 ///
@@ -246,7 +106,7 @@ class Asset {
     this.purchasePrice,
     required this.purchaseDate,
     this.isPinned = 0,
-    this.category = '未分类',
+    String category = AssetCategory.uncategorized,
     this.tags = const [],
     required this.createdAt,
     this.status = 0,
@@ -260,11 +120,15 @@ class Asset {
     this.avatarIconCodePoint,
     this.excludeFromTotal = 0,
     this.excludeFromDaily = 0,
-    this.ownershipType = 'buyout',
+    String ownershipType = 'buyout',
     this.renewals = const [],
     this.consumables = const [],
     this.replacements = const [],
-  });
+  }) : category = AssetCategory.normalize(category),
+       ownershipType = AssetCategory.normalizeOwnership(
+         ownershipType: ownershipType,
+         category: category,
+       );
 
   /// 创建 Asset 的便捷工厂方法
   factory Asset.create({
@@ -273,7 +137,7 @@ class Asset {
     double? purchasePrice,
     required int purchaseDate,
     int isPinned = 0,
-    String category = '未分类',
+    String category = AssetCategory.uncategorized,
     List<String>? tags,
     int? createdAt,
     int status = 0,
@@ -298,7 +162,7 @@ class Asset {
       purchasePrice: purchasePrice,
       purchaseDate: purchaseDate,
       isPinned: isPinned,
-      category: category,
+      category: AssetCategory.normalize(category),
       tags: tags ?? const [],
       createdAt: createdAt ?? DateTime.now().millisecondsSinceEpoch,
       status: status,
@@ -312,197 +176,14 @@ class Asset {
       avatarIconCodePoint: avatarIconCodePoint,
       excludeFromTotal: excludeFromTotal,
       excludeFromDaily: excludeFromDaily,
-      ownershipType: ownershipType,
+      ownershipType: AssetCategory.normalizeOwnership(
+        ownershipType: ownershipType,
+        category: category,
+      ),
       renewals: renewals ?? const [],
       consumables: consumables ?? const [],
       replacements: replacements ?? const [],
     );
-  }
-
-  /// 是否已卖出或退役
-  bool get isSoldOrRetired => status == 1 || status == 2;
-
-  /// 是否服役中
-  bool get isActive => status == 0;
-
-  /// 是否订阅资产
-  bool get isSubscription => ownershipType == 'subscription';
-
-  /// 订阅资产的当前到期日（最后一次续费的到期日）
-  int? get currentExpireDate {
-    if (renewals.isEmpty) return null;
-    return renewals.last.expireDate;
-  }
-
-  /// 订阅资产的剩余天数
-  int get subscriptionRemainingDays {
-    if (renewals.isEmpty) return 0;
-    final expire = currentExpireDate!;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return ((expire - now) ~/ Duration.millisecondsPerDay).clamp(0, 99999);
-  }
-
-  /// 订阅资产的总续费金额
-  double get totalRenewalCost => renewals.fold(0.0, (sum, r) => sum + r.price);
-
-  /// 订阅资产的总实际订阅天数
-  int get totalSubscribedDays =>
-      renewals.fold(0, (sum, r) => sum + r.durationDays);
-
-  /// 计算实际/冻结天数
-  /// - 状态 1(退役) 或 2(卖出) 时，时间永久冻结在 soldDate
-  /// - 状态 0(服役中) 时，时间持续流逝到今天
-  int get calculatedDays {
-    final start = DateTime.fromMillisecondsSinceEpoch(purchaseDate);
-    DateTime end;
-
-    // 状态 1(退役) 或 2(卖出) 时，时间永久冻结在 soldDate
-    if ((status == 1 || status == 2) && soldDate != null) {
-      end = DateTime.fromMillisecondsSinceEpoch(soldDate!);
-    } else {
-      // 状态 0(服役中)，时间持续流逝到今天
-      end = DateTime.now();
-    }
-
-    final days = end.difference(start).inDays;
-    return days > 0 ? days : 1; // 兜底：最小使用天数为 1，防止除以 0
-  }
-
-  /// 计算日均价格（核心业务逻辑）
-  /// - 如果已卖出且有回血价，成本 = 买入价 - 卖出价
-  /// - 服役中且未超期：按预期寿命计算固定日均
-  /// - 其他情况：按实际/冻结天数计算
-  double get dailyCost {
-    double cost = purchasePrice ?? 0;
-
-    // 订阅资产：用续费记录计算
-    if (isSubscription && renewals.isNotEmpty) {
-      cost = totalRenewalCost;
-      final days = totalSubscribedDays;
-      if (days > 0) return (cost / days) + consumableDailyCost;
-      return 0;
-    }
-
-    // 卖出回血
-    if (status == 2 && soldPrice != null) {
-      cost = (purchasePrice ?? 0) - soldPrice!;
-    }
-
-    final daysUsed = calculatedDays;
-
-    // 服役中按预期寿命
-    if (status == 0 &&
-        expectedLifespanDays != null &&
-        expectedLifespanDays! > 0) {
-      if (daysUsed < expectedLifespanDays!) {
-        return (cost / expectedLifespanDays!) + consumableDailyCost;
-      }
-    }
-
-    if (daysUsed <= 0) return cost;
-    return (cost / daysUsed) + consumableDailyCost;
-  }
-
-  /// 计算剩余天数
-  int? get remainingDays {
-    final lifespan = expectedLifespanDays;
-    if (lifespan == null) return null;
-    final endDate = purchaseDate + Duration(days: lifespan).inMilliseconds;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final difference = (endDate - now) ~/ Duration.millisecondsPerDay;
-    return difference > 0 ? difference : 0;
-  }
-
-  /// 计算已使用天数
-  int get usedDays {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final difference = (now - purchaseDate) ~/ Duration.millisecondsPerDay;
-    return difference > 0 ? difference : 0;
-  }
-
-  /// 计算实际使用天数（如果已卖出/退役，则计算到卖出/退役日期）
-  int get actualUsedDays {
-    if (soldDate != null) {
-      final difference =
-          (soldDate! - purchaseDate) ~/ Duration.millisecondsPerDay;
-      return difference > 0 ? difference : 0;
-    }
-    return usedDays;
-  }
-
-  /// 是否已过期
-  bool get isExpired {
-    final remaining = remainingDays;
-    return remaining == null || remaining == 0;
-  }
-
-  /// 计算实际日均花费（考虑卖出）
-  double? get actualDailyCost {
-    final price = purchasePrice;
-    final sold = soldPrice;
-    final date = soldDate;
-    if (price == null || sold == null || date == null) return null;
-    final days = (date - purchaseDate) ~/ Duration.millisecondsPerDay;
-    if (days <= 0) return null;
-    return (price - sold) / days;
-  }
-
-  /// 是否有耗材
-  bool get hasConsumables => consumables.isNotEmpty;
-
-  /// 所有耗材的日均成本之和
-  double get consumableDailyCost {
-    if (consumables.isEmpty) return 0;
-    return consumables.fold(0.0, (sum, c) {
-      // 按更换记录的平均价格计算，无记录则用基础价格
-      final records = replacements
-          .where((r) => r.consumableName == c.name)
-          .toList();
-      double avgPrice = c.price;
-      if (records.isNotEmpty) {
-        avgPrice = records.fold(0.0, (s, r) => s + r.price) / records.length;
-      }
-      final dailyCost = c.cycleDays > 0 ? avgPrice / c.cycleDays : 0;
-      return sum + dailyCost;
-    });
-  }
-
-  /// 获取某个耗材距上次更换已过的天数
-  int getConsumableDaysSinceReplacement(
-    String consumableName,
-    int purchasedAt,
-  ) {
-    final lastRecord = replacements
-        .where((r) => r.consumableName == consumableName)
-        .fold<ReplacementRecord?>(null, (latest, r) {
-          if (latest == null || r.replacedAt > latest.replacedAt) return r;
-          return latest;
-        });
-    final referenceTime = lastRecord?.replacedAt ?? purchasedAt;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return ((now - referenceTime) / Duration.millisecondsPerDay).floor();
-  }
-
-  /// 获取某个耗材剩余天数（正数=剩余，负数=已过期）
-  int getConsumableRemainingDays(ConsumableRecord consumable) {
-    final usedDays = getConsumableDaysSinceReplacement(
-      consumable.name,
-      consumable.purchasedAt,
-    );
-    return consumable.cycleDays - usedDays;
-  }
-
-  /// 累计耗材总花费
-  double get totalConsumableCost =>
-      replacements.fold(0.0, (sum, r) => sum + r.price);
-
-  /// 含耗材的日均成本 = (主体成本 + 累计耗材成本) / 使用天数
-  double get dailyCostWithConsumables {
-    final base = dailyCost;
-    if (!hasConsumables) return base;
-    final days = calculatedDays;
-    if (days <= 0) return base;
-    return (totalConsumableCost + (purchasePrice ?? 0)) / days;
   }
 
   // ==================== SQLite 映射方法 ====================
@@ -540,6 +221,7 @@ class Asset {
   /// 从 Map 创建 Asset 对象（用于 SQLite 查询结果）
   /// 下划线命名 (SQLite) -> 驼峰命名 (Dart)
   factory Asset.fromMap(Map<String, dynamic> map) {
+    final rawCategory = map['category'] as String?;
     return Asset(
       id: map['id'] as String,
       assetName: map['asset_name'] as String,
@@ -548,7 +230,7 @@ class Asset {
           : null,
       purchaseDate: map['purchase_date'] as int,
       isPinned: (map['is_pinned'] as int?) ?? 0,
-      category: map['category'] as String? ?? '未分类',
+      category: AssetCategory.normalize(rawCategory),
       tags: _decodeTags(map['tags']),
       createdAt: map['created_at'] as int,
       status: (map['status'] as int?) ?? 0,
@@ -564,7 +246,10 @@ class Asset {
       avatarIconCodePoint: map['avatar_icon_code_point'] as int?,
       excludeFromTotal: (map['exclude_from_total'] as int?) ?? 0,
       excludeFromDaily: (map['exclude_from_daily'] as int?) ?? 0,
-      ownershipType: map['ownership_type'] as String? ?? 'buyout',
+      ownershipType: AssetCategory.normalizeOwnership(
+        ownershipType: map['ownership_type'] as String?,
+        category: rawCategory,
+      ),
       renewals: _decodeRenewals(map['renewals'] as String?),
       consumables: _decodeConsumables(map['consumables'] as String?),
       replacements: _decodeReplacements(map['replacements'] as String?),
@@ -693,51 +378,8 @@ class Asset {
   /// - "6 个月" 或 "6 个月"
   /// - "100 天" 或 "100 天"
   /// - "1 年 6 个月 10 天" 或 "1 年 6 个月 10 天"
-  static int parseExpectedDays(String input) {
-    if (input.isEmpty) return 0;
-
-    final trimmed = input.trim();
-
-    // 尝试纯数字（天数）
-    final pureNumberPattern = RegExp(r'^\s*(\d+)\s*$');
-    final pureMatch = pureNumberPattern.firstMatch(trimmed);
-    if (pureMatch != null) {
-      return int.parse(pureMatch.group(1)!);
-    }
-
-    // 使用正则表达式精确提取数字，支持空格可选
-    final yearPattern = RegExp(r'(\d+)\s*年');
-    final monthPattern = RegExp(r'(\d+)\s*(?:个\s*)?月');
-    final dayPattern = RegExp(r'(\d+)\s*天');
-
-    final yearMatch = yearPattern.firstMatch(trimmed);
-    final monthMatch = monthPattern.firstMatch(trimmed);
-    final dayMatch = dayPattern.firstMatch(trimmed);
-
-    int totalDays = 0;
-    bool hasMatch = false;
-
-    if (yearMatch != null) {
-      totalDays += int.parse(yearMatch.group(1)!) * 365;
-      hasMatch = true;
-    }
-
-    if (monthMatch != null) {
-      totalDays += int.parse(monthMatch.group(1)!) * 30;
-      hasMatch = true;
-    }
-
-    if (dayMatch != null) {
-      totalDays += int.parse(dayMatch.group(1)!);
-      hasMatch = true;
-    }
-
-    if (!hasMatch) {
-      return 0;
-    }
-
-    return totalDays;
-  }
+  static int parseExpectedDays(String input) =>
+      AssetInputParser.parseExpectedDays(input);
 
   /// 解析自定义日期格式，支持手写输入
   /// 支持格式：
@@ -746,95 +388,14 @@ class Asset {
   /// - "2026-01-01"
   /// - "2026/01/01"
   /// - "2026-01-01 12:30:00"
-  static DateTime? parseCustomDate(String input) {
-    if (input.isEmpty) return null;
-
-    final trimmed = input.trim();
-    String normalized = trimmed;
-
-    // 检查是否包含中文日期字符
-    if (normalized.contains('年') ||
-        normalized.contains('月') ||
-        normalized.contains('日')) {
-      normalized = normalized.replaceAll(RegExp(r'\s+'), '');
-      normalized = normalized.replaceAll('年', '-');
-      normalized = normalized.replaceAll('月', '-');
-      normalized = normalized.replaceAll('日', '');
-      normalized = normalized.replaceAll(RegExp(r'-+$'), '');
-    }
-
-    // 尝试解析短横线格式
-    final dashPattern = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$');
-    final dashMatch = dashPattern.firstMatch(normalized);
-    if (dashMatch != null) {
-      final year = int.parse(dashMatch.group(1)!);
-      final month = int.parse(dashMatch.group(2)!);
-      final day = int.parse(dashMatch.group(3)!);
-      try {
-        return DateTime(year, month, day);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    // 尝试解析点分隔格式
-    final dotPattern = RegExp(r'^(\d{4})\.(\d{1,2})\.(\d{1,2})$');
-    final dotMatch = dotPattern.firstMatch(trimmed);
-    if (dotMatch != null) {
-      final year = int.parse(dotMatch.group(1)!);
-      final month = int.parse(dotMatch.group(2)!);
-      final day = int.parse(dotMatch.group(3)!);
-      try {
-        return DateTime(year, month, day);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    // 尝试解析斜杠格式
-    final slashPattern = RegExp(r'^(\d{4})/(\d{1,2})/(\d{1,2})$');
-    final slashMatch = slashPattern.firstMatch(trimmed);
-    if (slashMatch != null) {
-      final year = int.parse(slashMatch.group(1)!);
-      final month = int.parse(slashMatch.group(2)!);
-      final day = int.parse(slashMatch.group(3)!);
-      try {
-        return DateTime(year, month, day);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    // 尝试标准 DateTime 解析
-    try {
-      return DateTime.parse(trimmed);
-    } catch (_) {
-      return null;
-    }
-  }
+  static DateTime? parseCustomDate(String input) =>
+      AssetInputParser.parseCustomDate(input);
 
   /// 格式化日期显示
-  static String formatDate(DateTime date, {String format = 'yyyy-MM-dd'}) {
-    return DateFormat(format).format(date);
-  }
+  static String formatDate(DateTime date, {String format = 'yyyy-MM-dd'}) =>
+      AssetInputParser.formatDate(date, format: format);
 
   /// 格式化天数显示
-  static String formatDays(int days, {String style = 'combined'}) {
-    if (style == 'days') {
-      return '$days 天';
-    }
-
-    final years = days ~/ 365;
-    final remainingAfterYears = days % 365;
-    final months = remainingAfterYears ~/ 30;
-    final remainingDays = remainingAfterYears % 30;
-
-    final parts = <String>[];
-    if (years > 0) parts.add('$years 年');
-    if (months > 0) parts.add('$months 月');
-    if (remainingDays > 0) parts.add('$remainingDays 天');
-
-    if (parts.isEmpty) return '0 天';
-    return parts.join('');
-  }
+  static String formatDays(int days, {String style = 'combined'}) =>
+      AssetInputParser.formatDays(days, style: style);
 }

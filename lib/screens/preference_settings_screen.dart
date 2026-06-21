@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/asset_category.dart';
+import '../services/asset_preferences_service.dart';
 
 class PreferenceSettingsScreen extends StatefulWidget {
   const PreferenceSettingsScreen({super.key});
@@ -12,15 +14,13 @@ class PreferenceSettingsScreen extends StatefulWidget {
 class _PreferenceSettingsScreenState extends State<PreferenceSettingsScreen> {
   // 默认启动分类设置
   String _defaultCategory = 'all';
-  final String _prefKey = 'default_startup_category';
 
   // 时长显示格式设置
   String _timeDisplayMode = 'auto';
   final String _timeDisplayPrefKey = 'time_display_mode';
 
   // 自定义分类列表（用于下拉选项）
-  List<String> _customCategories = ['未分类'];
-  final String _customCategoriesPrefKey = 'custom_categories';
+  List<String> _customCategories = [AssetCategory.uncategorized];
 
   // 时长显示模式选项
   final List<Map<String, String>> _timeModeOptions = [
@@ -51,20 +51,26 @@ class _PreferenceSettingsScreenState extends State<PreferenceSettingsScreen> {
   /// 加载所有设置
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final defaultCategory =
+        await AssetPreferencesService.loadDefaultStartupCategory();
+    final customCategories =
+        await AssetPreferencesService.loadCustomCategories();
     setState(() {
-      _defaultCategory = prefs.getString(_prefKey) ?? 'all';
+      _defaultCategory = defaultCategory;
       _timeDisplayMode = prefs.getString(_timeDisplayPrefKey) ?? 'auto';
-      _customCategories =
-          prefs.getStringList(_customCategoriesPrefKey) ?? ['未分类'];
+      _customCategories = customCategories;
     });
   }
 
   /// 保存默认启动分类设置
   Future<void> _saveDefaultCategory(String value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefKey, value);
+    final normalized = AssetPreferencesService.normalizeCategorySelection(
+      value,
+      fallback: 'all',
+    );
+    await AssetPreferencesService.saveDefaultStartupCategory(normalized);
     setState(() {
-      _defaultCategory = value;
+      _defaultCategory = normalized;
     });
   }
 
@@ -95,21 +101,24 @@ class _PreferenceSettingsScreenState extends State<PreferenceSettingsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: _timeModeOptions.map((option) {
-            return RadioListTile<String>(
+            final value = option['value']!;
+            final isSelected = value == _timeDisplayMode;
+            return ListTile(
+              leading: Icon(
+                isSelected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: isSelected ? Colors.green : null,
+              ),
               title: Text(option['label']!),
               subtitle: Text(
                 option['desc']!,
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
-              value: option['value']!,
-              groupValue: _timeDisplayMode,
-              onChanged: (value) {
-                if (value != null) {
-                  _saveTimeDisplayMode(value);
-                  Navigator.pop(context);
-                }
+              onTap: () {
+                _saveTimeDisplayMode(value);
+                Navigator.pop(context);
               },
-              activeColor: Colors.green,
             );
           }).toList(),
         ),

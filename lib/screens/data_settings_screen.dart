@@ -1,18 +1,10 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:csv/csv.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:universal_html/html.dart' as html;
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../models/asset.dart';
 import '../providers/asset_provider.dart';
+import '../services/asset_archive_service.dart';
+import '../services/asset_csv_service.dart';
 import '../services/local_db_service.dart';
 import '../services/cloud_sync_service.dart';
 import 'login_screen.dart';
@@ -54,13 +46,6 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
     }
   }
 
-  /// 格式化时间戳为 yyyy-MM-dd 格式
-  String _formatTimestamp(int? timestamp) {
-    if (timestamp == null) return '';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    return DateFormat('yyyy-MM-dd').format(date);
-  }
-
   /// 显示错误提示
   void _showError(String message) {
     if (mounted) {
@@ -94,7 +79,6 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
   /// 导出 CSV 文件逻辑
   Future<void> _exportToCSV() async {
     if (_importExportLocked) {
-      debugPrint('[导出] 操作被锁定，跳过');
       return;
     }
 
@@ -104,161 +88,15 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
     });
 
     try {
-      debugPrint('[导出] 开始导出流程...');
+      final result = await AssetArchiveService.exportAllAssets();
+      if (!mounted || result.isCanceled) return;
 
-      final assets = await LocalDbService().getAllAssets();
-      debugPrint('[导出] 获取到 ${assets.length} 条资产');
-
-      if (assets.isEmpty) {
-        _showError('暂无数据可导出');
-        return;
+      if (result.successMessage != null) {
+        _showSuccess(result.successMessage!);
+      } else if (result.errorMessage != null) {
+        _showError(result.errorMessage!);
       }
-
-      // 构建 CSV 数据 - 使用 V2.0 新字段
-      final csvData = <List<dynamic>>[
-        [
-          'id',
-          'asset_name',
-          'purchase_price',
-          'expected_lifespan_days',
-          'purchase_date',
-          'is_pinned',
-          'status',
-          'sold_price',
-          'sold_date',
-          'category',
-          'expire_date',
-          'tags',
-          'created_at',
-          'ownership_type',
-          'avatar_bg_color',
-          'avatar_text',
-          'avatar_icon_code_point',
-          'exclude_from_total',
-          'exclude_from_daily',
-          'renewals',
-          'consumables',
-          'replacements',
-        ],
-      ];
-
-      for (final asset in assets) {
-        csvData.add([
-          asset.id,
-          asset.assetName,
-          asset.purchasePrice ?? '',
-          asset.expectedLifespanDays ?? '',
-          _formatTimestamp(asset.purchaseDate),
-          asset.isPinned == 1 ? 'true' : 'false',
-          asset.status, // 0 服役中，1 已退役，2 已卖出
-          asset.soldPrice ?? '',
-          _formatTimestamp(asset.soldDate),
-          asset.category,
-          _formatTimestamp(asset.expireDate),
-          asset.tags.join(';'),
-          _formatTimestamp(asset.createdAt),
-          asset.ownershipType,
-          asset.avatarBgColor ?? '',
-          asset.avatarText ?? '',
-          asset.avatarIconCodePoint ?? '',
-          asset.excludeFromTotal,
-          asset.excludeFromDaily,
-          jsonEncode(asset.renewals.map((r) => r.toMap()).toList()),
-          jsonEncode(asset.consumables.map((c) => c.toMap()).toList()),
-          jsonEncode(asset.replacements.map((r) => r.toMap()).toList()),
-        ]);
-      }
-
-      final csvString = const ListToCsvConverter().convert(csvData);
-      debugPrint('[导出] CSV 字符串长度：${csvString.length}');
-
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final defaultFileName = 'daily_price_backup_$timestamp.csv';
-      debugPrint('[导出] 默认文件名：$defaultFileName');
-
-      if (kIsWeb) {
-        debugPrint('[导出] Web 平台，使用 Blob 下载');
-        final bytes = utf8.encode(csvString);
-        final blob = html.Blob([bytes], 'text/csv', 'native');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        html.AnchorElement(href: url)
-          ..setAttribute('download', defaultFileName)
-          ..click();
-        html.Url.revokeObjectUrl(url);
-        _showSuccess('已导出 ${assets.length} 条资产数据');
-      } else if (Platform.isAndroid) {
-        debugPrint('[导出] Android 平台，尝试 saveFile');
-
-        try {
-          final tempDir = await getTemporaryDirectory();
-          final tempFilePath = '${tempDir.path}/$defaultFileName';
-          final tempFile = File(tempFilePath);
-          await tempFile.writeAsString(csvString);
-          debugPrint('[导出] 临时文件已创建：$tempFilePath');
-
-          final savePath = await FilePicker.platform.saveFile(
-            dialogTitle: '保存 CSV 文件',
-            fileName: defaultFileName,
-            type: FileType.custom,
-            allowedExtensions: ['csv'],
-            bytes: Uint8List.fromList(utf8.encode(csvString)),
-          );
-
-          if (savePath == null) {
-            debugPrint('[导出] 用户取消保存');
-            return;
-          }
-
-          if (savePath.isNotEmpty) {
-            debugPrint('[导出] saveFile 返回路径：$savePath');
-            _showSuccess('已保存到：$savePath');
-          } else {
-            debugPrint('[导出] saveFile 返回空字符串，尝试备选方案');
-            await _exportToAndroidDownload(csvString, defaultFileName);
-          }
-        } on PlatformException catch (e) {
-          debugPrint('[导出] PlatformException: ${e.code} - ${e.message}');
-          _showError('saveFile 失败：${e.code} - ${e.message}');
-          await _exportToAndroidDownload(csvString, defaultFileName);
-        } catch (e) {
-          debugPrint('[导出] saveFile 异常：$e');
-          _showError('保存失败：${e.toString()}');
-          await _exportToAndroidDownload(csvString, defaultFileName);
-        }
-      } else {
-        debugPrint('[导出] 桌面端平台，使用 saveFile');
-
-        try {
-          final savePath = await FilePicker.platform.saveFile(
-            dialogTitle: '保存 CSV 文件',
-            fileName: defaultFileName,
-            type: FileType.custom,
-            allowedExtensions: ['csv'],
-            bytes: Uint8List.fromList(utf8.encode(csvString)),
-          );
-
-          if (savePath == null) {
-            debugPrint('[导出] 用户取消保存');
-            return;
-          }
-
-          if (savePath.isNotEmpty) {
-            debugPrint('[导出] 文件已保存到：$savePath');
-            _showSuccess('已保存到：$savePath');
-          }
-        } on PlatformException catch (e) {
-          debugPrint('[导出] PlatformException: ${e.code} - ${e.message}');
-          _showError('保存失败：${e.code} - ${e.message}');
-        } catch (e) {
-          debugPrint('[导出] 保存异常：$e');
-          _showError('保存失败：${e.toString()}');
-        }
-      }
-
-      debugPrint('[导出] 导出流程完成');
-    } catch (e, stackTrace) {
-      debugPrint('[导出] 发生错误：$e');
-      debugPrint('[导出] 堆栈：$stackTrace');
+    } catch (e) {
       _showError('导出失败：${e.toString()}');
     } finally {
       if (mounted) {
@@ -270,41 +108,9 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
     }
   }
 
-  /// Android 备选导出方案
-  Future<void> _exportToAndroidDownload(
-    String csvString,
-    String fileName,
-  ) async {
-    try {
-      debugPrint('[导出] 尝试写入 Download 目录');
-
-      final downloadDir = Directory('/storage/emulated/0/Download');
-
-      if (await downloadDir.exists()) {
-        final filePath = '${downloadDir.path}/$fileName';
-        final file = File(filePath);
-        await file.writeAsString(csvString);
-        debugPrint('[导出] 已写入 Download 目录：$filePath');
-        _showSuccess('已保存到下载目录：$fileName');
-      } else {
-        debugPrint('[导出] Download 目录不存在');
-        final tempDir = await getTemporaryDirectory();
-        final tempFilePath = '${tempDir.path}/$fileName';
-        final tempFile = File(tempFilePath);
-        await tempFile.writeAsString(csvString);
-        debugPrint('[导出] 已写入临时目录：$tempFilePath');
-        _showSuccess('已保存到临时目录：$fileName\n路径：$tempFilePath');
-      }
-    } catch (e) {
-      debugPrint('[导出] 备选方案失败：$e');
-      _showError('保存失败，请检查存储权限：${e.toString()}');
-    }
-  }
-
   /// 导入 CSV 文件逻辑
   Future<void> _importFromCSV() async {
     if (_importExportLocked) {
-      debugPrint('[导入] 操作被锁定，跳过');
       return;
     }
 
@@ -314,288 +120,41 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
     });
 
     try {
-      debugPrint('[导入] 开始导入流程...');
-
-      final result = await FilePicker.platform.pickFiles(
-        dialogTitle: '选择 CSV 文件',
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-        withData: true,
-      );
-
-      if (result == null || result.files.isEmpty) {
-        debugPrint('[导入] 用户取消选择');
+      final archive = await AssetArchiveService.pickCsvString();
+      if (!mounted || archive.isCanceled) return;
+      if (archive.errorMessage != null) {
+        _showError(archive.errorMessage!);
         return;
       }
 
-      final file = result.files.first;
-      debugPrint('[导入] 选中文件：${file.name}');
-      String csvString;
-
-      if (kIsWeb) {
-        final bytes = file.bytes;
-        if (bytes == null) {
-          _showError('无法读取文件内容：bytes 为空');
-          return;
-        }
-        csvString = utf8.decode(bytes);
-      } else {
-        if (file.path == null) {
-          _showError('无法获取文件路径：path 为空');
-          return;
-        }
-        csvString = await File(file.path!).readAsString();
-      }
-
-      debugPrint('[导入] CSV 字符串长度：${csvString.length}');
-
-      final csvRows = const CsvToListConverter().convert(csvString);
-      debugPrint('[导入] 解析到 ${csvRows.length} 行（含表头）');
-
-      if (csvRows.length < 2) {
-        _showError('CSV 文件为空或格式不正确（仅有 ${csvRows.length} 行）');
+      final csvString = archive.csvString;
+      if (csvString == null) {
+        _showError('无法读取文件内容');
         return;
       }
 
-      final header = csvRows[0]
-          .map((e) => e.toString().trim().toLowerCase())
-          .toList();
-      debugPrint('[导入] 表头：$header');
-
-      final Map<String, int> fieldIndex = {};
-      for (int i = 0; i < header.length; i++) {
-        fieldIndex[header[i]] = i;
-      }
-
-      final hasAssetName =
-          fieldIndex.containsKey('asset_name') ||
-          fieldIndex.containsKey('name') ||
-          fieldIndex.containsKey('title');
-      if (!hasAssetName) {
-        _showError('CSV 缺少必要字段：asset_name 或 name 或 title\n当前表头：$header');
-        return;
-      }
-
-      final assetsToImport = <Asset>[];
-      int skippedRows = 0;
-
-      for (int i = 1; i < csvRows.length; i++) {
-        final row = csvRows[i];
-        if (row.isEmpty) {
-          skippedRows++;
-          continue;
-        }
-
-        try {
-          String? getRowValue(List<String> possibleFieldNames) {
-            for (final fieldName in possibleFieldNames) {
-              final idx = fieldIndex[fieldName.toLowerCase()];
-              if (idx != null && idx < row.length) {
-                final val = row[idx];
-                return (val == null || val.toString().trim().isEmpty)
-                    ? null
-                    : val.toString().trim();
-              }
-            }
-            return null;
-          }
-
-          final assetName = getRowValue(['asset_name', 'name', 'title']);
-          if (assetName == null || assetName.isEmpty) {
-            debugPrint('[导入] 第 $i 行缺少资产名称，跳过');
-            skippedRows++;
-            continue;
-          }
-
-          final id = getRowValue(['id', 'uuid']) ?? '';
-
-          final purchasePriceStr = getRowValue(['purchase_price', 'price']);
-          final purchasePrice = purchasePriceStr != null
-              ? double.tryParse(purchasePriceStr)
-              : null;
-
-          final lifespanStr = getRowValue([
-            'expected_lifespan_days',
-            'lifespan_days',
-            'lifespan',
-          ]);
-          final expectedLifespanDays = lifespanStr != null
-              ? int.tryParse(lifespanStr)
-              : null;
-
-          final purchaseDateStr = getRowValue([
-            'purchase_date',
-            'buy_date',
-            'date',
-          ]);
-          final purchaseDate =
-              _parseDateString(purchaseDateStr)?.millisecondsSinceEpoch ??
-              DateTime.now().millisecondsSinceEpoch;
-
-          final isPinnedStr = getRowValue(['is_pinned', 'pinned']);
-          final isPinned = isPinnedStr?.toLowerCase() == 'true' ? 1 : 0;
-
-          // 支持旧的 is_sold 字段映射到 status
-          final isSoldStr = getRowValue(['is_sold', 'sold']);
-          final isSold = isSoldStr?.toLowerCase() == 'true';
-
-          // 支持 status 字段或从 is_sold 转换
-          final statusStr = getRowValue(['status']);
-          int status = 0; // 默认服役中
-          if (statusStr != null) {
-            status = int.tryParse(statusStr) ?? 0;
-          } else if (isSold) {
-            status = 2; // 已卖出
-          }
-
-          final soldPriceStr = getRowValue(['sold_price', 'sell_price']);
-          final soldPrice = soldPriceStr != null
-              ? double.tryParse(soldPriceStr)
-              : null;
-
-          final soldDateStr = getRowValue(['sold_date', 'sell_date']);
-          final soldDate = _parseDateString(
-            soldDateStr,
-          )?.millisecondsSinceEpoch;
-
-          final category = getRowValue(['category', 'type']) ?? 'physical';
-
-          final expireDateStr = getRowValue(['expire_date', 'expiry_date']);
-          final expireDate = _parseDateString(
-            expireDateStr,
-          )?.millisecondsSinceEpoch;
-
-          final tagsStr = getRowValue(['tags', 'tag']);
-          final tags = tagsStr != null && tagsStr.isNotEmpty
-              ? tagsStr
-                    .split(';')
-                    .map((e) => e.trim())
-                    .where((e) => e.isNotEmpty)
-                    .toList()
-              : <String>[];
-
-          final createdAtStr = getRowValue([
-            'created_at',
-            'created_date',
-            'created',
-          ]);
-          final createdAt =
-              _parseDateString(createdAtStr)?.millisecondsSinceEpoch ??
-              DateTime.now().millisecondsSinceEpoch;
-
-          // 新字段解析
-          final ownershipType = getRowValue(['ownership_type']) ?? 'buyout';
-
-          final avatarBgColorStr = getRowValue(['avatar_bg_color']);
-          final avatarBgColor = avatarBgColorStr != null
-              ? int.tryParse(avatarBgColorStr)
-              : null;
-
-          final avatarText = getRowValue(['avatar_text']);
-
-          final avatarIconStr = getRowValue(['avatar_icon_code_point']);
-          final avatarIconCodePoint = avatarIconStr != null
-              ? int.tryParse(avatarIconStr)
-              : null;
-
-          final excludeFromTotalStr = getRowValue(['exclude_from_total']);
-          final excludeFromTotal = excludeFromTotalStr == '1' ? 1 : 0;
-
-          final excludeFromDailyStr = getRowValue(['exclude_from_daily']);
-          final excludeFromDaily = excludeFromDailyStr == '1' ? 1 : 0;
-
-          // JSON 字段解析
-          final renewalsStr = getRowValue(['renewals']);
-          List<RenewalRecord> renewals = [];
-          if (renewalsStr != null && renewalsStr.isNotEmpty) {
-            try {
-              final list = jsonDecode(renewalsStr) as List;
-              renewals = list
-                  .map((e) => RenewalRecord.fromMap(e as Map<String, dynamic>))
-                  .toList();
-            } catch (_) {}
-          }
-
-          final consumablesStr = getRowValue(['consumables']);
-          List<ConsumableRecord> consumables = [];
-          if (consumablesStr != null && consumablesStr.isNotEmpty) {
-            try {
-              final list = jsonDecode(consumablesStr) as List;
-              consumables = list
-                  .map(
-                    (e) => ConsumableRecord.fromMap(e as Map<String, dynamic>),
-                  )
-                  .toList();
-            } catch (_) {}
-          }
-
-          final replacementsStr = getRowValue(['replacements']);
-          List<ReplacementRecord> replacements = [];
-          if (replacementsStr != null && replacementsStr.isNotEmpty) {
-            try {
-              final list = jsonDecode(replacementsStr) as List;
-              replacements = list
-                  .map(
-                    (e) => ReplacementRecord.fromMap(e as Map<String, dynamic>),
-                  )
-                  .toList();
-            } catch (_) {}
-          }
-
-          final asset = Asset(
-            id: id,
-            assetName: assetName,
-            purchasePrice: purchasePrice,
-            expectedLifespanDays: expectedLifespanDays,
-            purchaseDate: purchaseDate,
-            isPinned: isPinned,
-            status: status,
-            soldPrice: soldPrice,
-            soldDate: soldDate,
-            category: category,
-            expireDate: expireDate,
-            tags: tags,
-            createdAt: createdAt,
-            ownershipType: ownershipType,
-            avatarBgColor: avatarBgColor,
-            avatarText: avatarText,
-            avatarIconCodePoint: avatarIconCodePoint,
-            excludeFromTotal: excludeFromTotal,
-            excludeFromDaily: excludeFromDaily,
-            renewals: renewals,
-            consumables: consumables,
-            replacements: replacements,
-          );
-
-          assetsToImport.add(asset);
-        } catch (e) {
-          debugPrint('[导入] 第 $i 行解析失败：$e');
-          skippedRows++;
-          continue;
-        }
-      }
-
-      debugPrint('[导入] 解析完成：${assetsToImport.length} 条有效，$skippedRows 条跳过');
+      final parseResult = AssetCsvService.parse(csvString);
+      final assetsToImport = parseResult.assets;
+      final skippedRows = parseResult.skippedRows;
 
       if (assetsToImport.isEmpty) {
         _showError('没有有效的资产数据可导入\n共跳过 $skippedRows 行');
         return;
       }
 
-      final (insertedCount, updatedCount) = await context
-          .read<AssetProvider>()
-          .importAssets(assetsToImport);
-
-      debugPrint('[导入] 导入完成：新增 $insertedCount 条，更新 $updatedCount 条');
+      if (!mounted) return;
+      final assetProvider = context.read<AssetProvider>();
+      final (insertedCount, updatedCount) = await assetProvider.importAssets(
+        assetsToImport,
+      );
+      if (!mounted) return;
 
       if (mounted) {
         setState(() {});
       }
 
       _showSuccess('导入完成：新增 $insertedCount 条，更新 $updatedCount 条');
-    } catch (e, stackTrace) {
-      debugPrint('[导入] 发生错误：$e');
-      debugPrint('[导入] 堆栈：$stackTrace');
+    } catch (e) {
       _showError('导入失败：${e.toString()}');
     } finally {
       if (mounted) {
@@ -604,36 +163,6 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
           _importExportLocked = false;
         });
       }
-    }
-  }
-
-  /// 解析日期字符串
-  DateTime? _parseDateString(String? dateStr) {
-    if (dateStr == null || dateStr.trim().isEmpty) return null;
-
-    final trimmed = dateStr.trim();
-
-    // 尝试多种日期格式
-    final formats = [
-      'yyyy-MM-dd',
-      'yyyy/MM/dd',
-      'yyyy.MM.dd',
-      'yyyy 年 M 月 d 日',
-      'yyyy 年 MM 月 dd 日',
-    ];
-
-    for (final format in formats) {
-      try {
-        return DateFormat(format).parse(trimmed);
-      } catch (_) {
-        continue;
-      }
-    }
-
-    try {
-      return DateTime.parse(trimmed);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -682,6 +211,7 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                               onTap: () async {
                                 final assets = await LocalDbService()
                                     .getAllAssets();
+                                if (!context.mounted) return;
                                 final confirm = await showDialog<bool>(
                                   context: context,
                                   builder: (ctx) => AlertDialog(
@@ -753,14 +283,14 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                                     final assets = await CloudSyncService
                                         .instance
                                         .syncDown();
-                                    final (
-                                      insertedCount,
-                                      updatedCount,
-                                    ) = await context
-                                        .read<AssetProvider>()
-                                        .importAssets(assets);
+                                    if (!context.mounted) return;
+                                    final assetProvider = context
+                                        .read<AssetProvider>();
+                                    final replacedCount = await assetProvider
+                                        .replaceAssets(assets);
+                                    if (!mounted) return;
                                     _showSuccess(
-                                      '同步完成：新增 $insertedCount 条，更新 $updatedCount 条',
+                                      '同步完成：本地已覆盖为 $replacedCount 条云端资产',
                                     );
                                   } catch (e) {
                                     _showError('同步失败：${e.toString()}');

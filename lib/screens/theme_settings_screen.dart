@@ -236,6 +236,7 @@ class ThemeSettingsScreen extends StatelessWidget {
     Color pickerColor = savedColorValue != null
         ? Color(savedColorValue)
         : const Color(0xFF2196F3);
+    if (!context.mounted) return;
 
     await showDialog(
       context: context,

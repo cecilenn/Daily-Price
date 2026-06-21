@@ -5,7 +5,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
+import '../models/asset_category.dart';
 import '../models/check_session.dart';
+import 'local_db_schema.dart';
 
 /// 本地数据库服务类 V2.0 - 单例模式
 /// 负责管理 sqflite 数据库实例和提供 CRUD 操作
@@ -31,187 +33,15 @@ class LocalDbService {
   Future<void> init() async {
     // 获取数据库文件路径
     final databasesPath = await getDatabasesPath();
-    final path = join(databasesPath, 'daily_price.db');
+    final path = join(databasesPath, LocalDbSchema.databaseName);
 
     // 打开数据库并创建表
     _db = await openDatabase(
       path,
-      version: 9,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
+      version: LocalDbSchema.version,
+      onCreate: LocalDbSchema.create,
+      onUpgrade: LocalDbSchema.upgrade,
     );
-  }
-
-  /// 数据库创建回调 - V3.0: 包含头像引擎新字段
-  Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE assets(
-        id TEXT PRIMARY KEY,
-        asset_name TEXT NOT NULL,
-        purchase_price REAL,
-        purchase_date INTEGER NOT NULL,
-        is_pinned INTEGER DEFAULT 0,
-        category TEXT DEFAULT '未分类',
-        tags TEXT DEFAULT '[]',
-        created_at INTEGER NOT NULL,
-        status INTEGER DEFAULT 0,
-        expected_lifespan_days INTEGER,
-        expire_date INTEGER,
-        sold_price REAL,
-        sold_date INTEGER,
-        avatar_path TEXT,
-        avatar_bg_color INTEGER,
-        avatar_text TEXT,
-        avatar_icon_code_point INTEGER,
-        exclude_from_total INTEGER DEFAULT 0,
-        exclude_from_daily INTEGER DEFAULT 0,
-        ownership_type TEXT DEFAULT 'buyout',
-        renewals TEXT DEFAULT '[]',
-        consumables TEXT DEFAULT '[]',
-        replacements TEXT DEFAULT '[]'
-      )
-    ''');
-    // 创建检查功能表
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS check_sessions (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        status INTEGER DEFAULT 0
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS check_items (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        asset_id TEXT NOT NULL,
-        asset_snapshot TEXT NOT NULL,
-        confirmed_at INTEGER,
-        FOREIGN KEY (session_id) REFERENCES check_sessions(id) ON DELETE CASCADE
-      )
-    ''');
-  }
-
-  /// 数据库升级回调
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // V2 -> V3: 添加头像引擎字段 (avatar_bg_color, avatar_text, avatar_icon_code_point)
-    if (oldVersion < 3) {
-      await _addAvatarV3Fields(db);
-    }
-
-    // V5 -> V6: 自定义分类 + ownership_type 升级
-    if (oldVersion < 6) {
-      // 先检查列是否存在
-      final columns = await db.rawQuery('PRAGMA table_info(assets)');
-      final columnNames = columns.map((c) => c['name'] as String).toSet();
-
-      // 新增 ownership_type 列（如果不存在）
-      if (!columnNames.contains('ownership_type')) {
-        await db.execute(
-          "ALTER TABLE assets ADD COLUMN ownership_type TEXT DEFAULT 'buyout'",
-        );
-      }
-
-      // 将 subscription 类别的资产设置 ownership_type 为 'subscription'
-      await db.execute(
-        "UPDATE assets SET ownership_type = 'subscription' WHERE category = 'subscription'",
-      );
-
-      // 将所有旧分类统一改为 '未分类'
-      await db.execute(
-        "UPDATE assets SET category = '未分类' WHERE category IN ('physical', 'virtual', 'subscription')",
-      );
-
-      log('========== [LocalDb] V6 自定义分类 + ownership_type 升级完成 ==========');
-    }
-
-    // V6 -> V7: 添加续费记录字段
-    if (oldVersion < 7) {
-      // 先检查列是否存在
-      final columns = await db.rawQuery('PRAGMA table_info(assets)');
-      final columnNames = columns.map((c) => c['name'] as String).toSet();
-
-      // 新增 renewals 列（如果不存在）
-      if (!columnNames.contains('renewals')) {
-        await db.execute(
-          "ALTER TABLE assets ADD COLUMN renewals TEXT DEFAULT '[]'",
-        );
-      }
-      log('========== [LocalDb] V7 续费记录字段升级完成 ==========');
-    }
-
-    // V7 -> V8: 添加检查功能表
-    if (oldVersion < 8) {
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS check_sessions (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          status INTEGER DEFAULT 0
-        )
-      ''');
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS check_items (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL,
-          asset_id TEXT NOT NULL,
-          asset_snapshot TEXT NOT NULL,
-          confirmed_at INTEGER,
-          FOREIGN KEY (session_id) REFERENCES check_sessions(id) ON DELETE CASCADE
-        )
-      ''');
-      log('========== [LocalDb] V8 检查功能表创建完成 ==========');
-    }
-
-    // V8 -> V9: 添加耗材追踪字段
-    if (oldVersion < 9) {
-      // 先检查列是否存在
-      final columns = await db.rawQuery('PRAGMA table_info(assets)');
-      final columnNames = columns.map((c) => c['name'] as String).toSet();
-
-      // 新增 consumables 列（如果不存在）
-      if (!columnNames.contains('consumables')) {
-        await db.execute(
-          "ALTER TABLE assets ADD COLUMN consumables TEXT DEFAULT '[]'",
-        );
-      }
-
-      // 新增 replacements 列（如果不存在）
-      if (!columnNames.contains('replacements')) {
-        await db.execute(
-          "ALTER TABLE assets ADD COLUMN replacements TEXT DEFAULT '[]'",
-        );
-      }
-
-      log('========== [LocalDb] V9 耗材追踪字段升级完成 ==========');
-    }
-  }
-
-  /// V3.0: 使用 ALTER TABLE 为 assets 表添加头像引擎新字段
-  /// 关键：使用 ALTER TABLE 避免老数据丢失
-  Future<void> _addAvatarV3Fields(Database db) async {
-    // 检查 avatar_bg_color 字段是否存在
-    final columns = await db.rawQuery('PRAGMA table_info(assets)');
-    final columnNames = columns.map((c) => c['name'] as String).toSet();
-
-    // 添加 avatar_bg_color 字段 (存储 16进制颜色 int 值)
-    if (!columnNames.contains('avatar_bg_color')) {
-      await db.execute('ALTER TABLE assets ADD COLUMN avatar_bg_color INTEGER');
-    }
-
-    // 添加 avatar_text 字段 (用户自定义的1-2个字符)
-    if (!columnNames.contains('avatar_text')) {
-      await db.execute('ALTER TABLE assets ADD COLUMN avatar_text TEXT');
-    }
-
-    // 添加 avatar_icon_code_point 字段 (Material Icon 的 codePoint)
-    if (!columnNames.contains('avatar_icon_code_point')) {
-      await db.execute(
-        'ALTER TABLE assets ADD COLUMN avatar_icon_code_point INTEGER',
-      );
-    }
-
-    log('========== [LocalDb] V3.0 头像引擎字段升级完成 ==========');
   }
 
   /// 获取所有资产
@@ -356,6 +186,27 @@ class LocalDbService {
     await db.delete('assets');
   }
 
+  /// 用给定资产列表全量替换本地资产
+  Future<void> replaceAllAssets(List<Asset> assets) async {
+    final uuid = const Uuid();
+    for (final asset in assets) {
+      if (asset.id.isEmpty) {
+        asset.id = uuid.v4();
+      }
+    }
+
+    await db.transaction((txn) async {
+      await txn.delete('assets');
+      for (final asset in assets) {
+        await txn.insert(
+          'assets',
+          asset.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
   /// 通过 UUID 查找资产
   Future<Asset?> getAssetByUuid(String uuid) async {
     final List<Map<String, dynamic>> maps = await db.query(
@@ -423,10 +274,17 @@ class LocalDbService {
     );
   }
 
-  /// 删除分类并清理相关标签
-  /// 删除指定分类的所有资产
+  /// 删除分类时将相关资产归入未分类，避免误删用户资产。
   Future<void> deleteCategoryAndCleanTags(String category) async {
-    await db.delete('assets', where: 'category = ?', whereArgs: [category]);
+    final normalizedCategory = AssetCategory.normalize(category);
+    if (normalizedCategory == AssetCategory.uncategorized) return;
+
+    await db.update(
+      'assets',
+      {'category': AssetCategory.uncategorized},
+      where: 'category = ?',
+      whereArgs: [normalizedCategory],
+    );
   }
 
   // === 检查任务 CRUD ===

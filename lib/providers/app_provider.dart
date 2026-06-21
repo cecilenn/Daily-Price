@@ -89,7 +89,7 @@ class AppProvider with ChangeNotifier {
     _theme = AppTheme.custom;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('custom_primary_color', color.value);
+    await prefs.setInt('custom_primary_color', color.toARGB32());
     await prefs.setString('theme', AppTheme.custom.name);
   }
 
