@@ -1,12 +1,9 @@
-import 'package:daily_price/features/inspection/providers/inspection_provider.dart';
-import 'package:daily_price/features/inspection/models/company_asset.dart';
-import 'package:daily_price/features/inspection/models/company_check_item.dart';
+import 'dart:convert';
+
 import 'package:daily_price/models/asset.dart';
-import 'package:daily_price/features/inspection/services/inspection_asset_code_parser.dart';
 import 'package:daily_price/models/asset_category.dart';
 import 'package:daily_price/providers/app_provider.dart';
 import 'package:daily_price/providers/asset_provider.dart';
-import 'package:daily_price/providers/check_provider.dart';
 import 'package:daily_price/services/asset_analysis_service.dart';
 import 'package:daily_price/services/asset_batch_service.dart';
 import 'package:daily_price/services/asset_csv_service.dart';
@@ -16,8 +13,6 @@ import 'package:daily_price/services/asset_preferences_service.dart';
 import 'package:daily_price/services/asset_qr_service.dart';
 import 'package:daily_price/services/asset_scan_import_service.dart';
 import 'package:daily_price/services/asset_share_service.dart';
-import 'package:daily_price/services/check_asset_snapshot_service.dart';
-import 'package:daily_price/services/check_session_archive_service.dart';
 import 'package:daily_price/services/local_db_schema.dart';
 import 'package:daily_price/utils/asset_input_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,10 +115,7 @@ void main() {
       final checkTables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('check_sessions', 'check_items')",
       );
-      expect(checkTables.map((row) => row['name']).toSet(), {
-        'check_sessions',
-        'check_items',
-      });
+      expect(checkTables, isEmpty);
     },
   );
 
@@ -191,6 +183,37 @@ void main() {
       );
     },
   );
+
+  test('defaults blank submitted purchase price to zero', () {
+    final asset = AssetFormSubmissionService.buildAsset(
+      const AssetFormSubmission(
+        existingAsset: null,
+        assetName: '无价资产',
+        purchasePriceText: '',
+        expectedDaysText: '',
+        purchaseDate: 1767225600000,
+        isPinned: 0,
+        status: 0,
+        soldPrice: null,
+        soldDate: null,
+        category: '设备',
+        ownershipType: 'buyout',
+        expireDate: null,
+        renewals: [],
+        consumables: [],
+        replacements: [],
+        tags: [],
+        excludeFromTotal: 0,
+        excludeFromDaily: 0,
+        avatarPath: null,
+        avatarBgColor: null,
+        avatarText: null,
+        avatarIconCodePoint: null,
+      ),
+    );
+
+    expect(asset.purchasePrice, 0);
+  });
 
   test('preserves submitted asset records and avatar fields', () {
     final asset = AssetFormSubmissionService.buildAsset(
@@ -416,10 +439,16 @@ asset_name,purchase_price,purchase_date,is_pinned,exclude_from_total,exclude_fro
       ],
     );
 
-    final parsed = AssetQrService.parse(
-      AssetShareService.serializeToQrJson(source),
-    );
+    final qrData = AssetShareService.serializeToQrJson(source);
+    final encoded = jsonDecode(qrData) as Map<String, dynamic>;
+    final data = encoded['d'] as Map<String, dynamic>;
+    final parsed = AssetQrService.parse(qrData);
 
+    expect(encoded['v'], 2);
+    expect(encoded['t'], 'asset');
+    expect(data['n'], '云服务');
+    expect(data['purchasePrice'], isNull);
+    expect(data['p'], 99);
     expect(parsed.asset.category, '软件');
     expect(parsed.asset.ownershipType, 'subscription');
     expect(parsed.asset.expireDate, 1798761600000);
@@ -445,23 +474,6 @@ asset_name,purchase_price,purchase_date,is_pinned,exclude_from_total,exclude_fro
     expect(parsed.asset.isPinned, 1);
     expect(parsed.asset.excludeFromTotal, 1);
     expect(parsed.asset.excludeFromDaily, 1);
-  });
-
-  test('builds check snapshots from scanned QR with normalized categories', () {
-    final snapshot = CheckAssetSnapshotService.fromScannedValue('''
-      {
-        "id": "asset-scan-1",
-        "assetName": "旧分类设备",
-        "purchasePrice": 300,
-        "purchaseDate": 1767225600000,
-        "category": "virtual",
-        "status": 0
-      }
-    ''');
-
-    expect(snapshot.assetId, 'asset-scan-1');
-    expect(snapshot.data['assetName'], '旧分类设备');
-    expect(snapshot.data['category'], AssetCategory.uncategorized);
   });
 
   test('resolves scanned asset QR into existing or preview actions', () async {
@@ -612,102 +624,55 @@ asset_name,purchase_price,purchase_date,is_pinned,exclude_from_total,exclude_fro
     expect(analysis.dailyCostTopAssets.map((a) => a.id), ['included']);
   });
 
-  test('parses compact check-session CSV exports without optional columns', () {
-    final sessions = CheckSessionArchiveService.parseCsv('''
-session_id,session_name,asset_id
-s1,季度盘点,a1
-''');
+  test('filters daily cost top assets by status and category', () {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final assets = [
+      Asset.create(
+        id: 'active-digital-high',
+        assetName: '高日均数码',
+        purchasePrice: 300,
+        purchaseDate: now,
+        category: '数码',
+        expectedLifespanDays: 10,
+        status: 0,
+      ),
+      Asset.create(
+        id: 'active-home',
+        assetName: '家电',
+        purchasePrice: 500,
+        purchaseDate: now,
+        category: '家电',
+        expectedLifespanDays: 10,
+        status: 0,
+      ),
+      Asset.create(
+        id: 'retired-digital',
+        assetName: '退役数码',
+        purchasePrice: 1000,
+        purchaseDate: now,
+        category: '数码',
+        expectedLifespanDays: 10,
+        status: 1,
+      ),
+      Asset.create(
+        id: 'excluded-digital',
+        assetName: '排除数码',
+        purchasePrice: 2000,
+        purchaseDate: now,
+        category: '数码',
+        expectedLifespanDays: 10,
+        status: 0,
+        excludeFromDaily: 1,
+      ),
+    ];
 
-    expect(sessions, hasLength(1));
-    expect(sessions.single.name, '季度盘点');
-    expect(sessions.single.items, hasLength(1));
-    expect(sessions.single.items.single.assetId, 'a1');
-    expect(sessions.single.items.single.snapshot['category'], '未分类');
-    expect(sessions.single.items.single.isConfirmed, isFalse);
-  });
-
-  test('encodes check-session export data with normalized categories', () {
-    final csv = CheckSessionArchiveService.encodeExportData({
-      'session': {
-        'id': 's1',
-        'name': '盘点',
-        'status': 0,
-        'created_at': 1767225600000,
-      },
-      'items': [
-        {
-          'id': 'i1',
-          'asset_id': 'a1',
-          'asset_snapshot':
-              '{"assetName":"设备","purchasePrice":88,"category":"physical","status":0}',
-          'confirmed_at': null,
-        },
-      ],
-    });
-
-    final parsed = CheckSessionArchiveService.parseCsv(csv);
-
-    expect(parsed, hasLength(1));
-    expect(parsed.single.items.single.snapshot['category'], '未分类');
-  });
-
-  test(
-    'keeps inspection item snapshots safe when stored data is malformed',
-    () {
-      final invalid = CompanyCheckItem(
-        id: 'item-1',
-        sessionId: 'session-1',
-        assetCode: 'EQ-001',
-        assetSnapshot: 'not-json',
-      );
-      final numericName = CompanyCheckItem(
-        id: 'item-2',
-        sessionId: 'session-1',
-        assetCode: 'EQ-002',
-        assetSnapshot: '{"asset_name": 123}',
-      );
-
-      expect(invalid.snapshotData['assetCode'], 'EQ-001');
-      expect(invalid.assetName, '未知资产');
-      expect(numericName.assetName, '123');
-    },
-  );
-
-  test('parses company assets from Chinese or English WebDAV fields', () {
-    final chinese = CompanyAsset.fromJson({
-      '资产编码': 'CN-001',
-      '资产名称': '展台',
-      '规格型号': 'A1',
-      '使用部门': '市场',
-      '使用人': '张三',
-      '存放位置': '上海',
-    });
-    final english = CompanyAsset.fromJson({
-      'asset_code': 'EN-001',
-      'asset_name': 'Booth',
-      'spec': 'B1',
-      'department': 'Marketing',
-      'owner': 'Alice',
-      'location': 'Beijing',
-    });
-
-    expect(chinese.assetCode, 'CN-001');
-    expect(chinese.assetName, '展台');
-    expect(english.assetCode, 'EN-001');
-    expect(english.assetName, 'Booth');
-    expect(english.user, 'Alice');
-  });
-
-  test('parses inspection scan asset codes without creating null codes', () {
-    expect(InspectionAssetCodeParser.parse(' EQ-001 '), 'EQ-001');
-    expect(InspectionAssetCodeParser.parse('{"资产编码":"CN-001"}'), 'CN-001');
-    expect(
-      InspectionAssetCodeParser.parse('{"asset_code":"EN-001"}'),
-      'EN-001',
+    final filtered = AssetAnalysisService.dailyCostTopAssets(
+      assets,
+      statusFilters: {0},
+      categoryFilters: {'数码'},
     );
-    expect(InspectionAssetCodeParser.parse('{"code": 123}'), '123');
-    expect(InspectionAssetCodeParser.parse('{}'), isNull);
-    expect(InspectionAssetCodeParser.parse(''), isNull);
+
+    expect(filtered.map((asset) => asset.id), ['active-digital-high']);
   });
 
   testWidgets('Home screen renders inside the real provider tree', (
@@ -720,8 +685,6 @@ s1,季度盘点,a1
         providers: [
           ChangeNotifierProvider(create: (_) => AppProvider()),
           ChangeNotifierProvider(create: (_) => AssetProvider()),
-          ChangeNotifierProvider(create: (_) => CheckProvider()),
-          ChangeNotifierProvider(create: (_) => InspectionProvider()),
         ],
         child: const DailyPriceApp(),
       ),

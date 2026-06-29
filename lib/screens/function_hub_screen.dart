@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'analysis_screen.dart';
-import 'check_list_screen.dart';
-import '../features/inspection/screens/inspection_list_screen.dart';
 
 class FunctionHubScreen extends StatelessWidget {
   const FunctionHubScreen({super.key});
@@ -20,28 +18,6 @@ class FunctionHubScreen extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const AnalysisScreen()),
-            ),
-          ),
-          _buildFunctionCard(
-            context,
-            icon: Icons.checklist,
-            title: '检查',
-            subtitle: '展会/出差资产盘点',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const CheckListScreen()),
-            ),
-          ),
-          _buildFunctionCard(
-            context,
-            icon: Icons.inventory_2,
-            title: '特调检查',
-            subtitle: '设备资产云端盘点',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const InspectionListScreen(),
-              ),
             ),
           ),
         ],

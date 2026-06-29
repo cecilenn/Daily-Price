@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/asset.dart';
 import '../providers/asset_provider.dart';
 import '../services/asset_analysis_service.dart';
 import '../widgets/analysis_cards.dart';
@@ -16,6 +17,8 @@ class AnalysisScreen extends StatefulWidget {
 
 class _AnalysisScreenState extends State<AnalysisScreen> {
   String _timeDisplayMode = 'auto';
+  final Set<int> _dailyCostStatusFilters = {};
+  final Set<String> _dailyCostCategoryFilters = {};
 
   @override
   void initState() {
@@ -44,6 +47,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           }
 
           final analysis = AssetAnalysisService.calculate(assets);
+          final availableCategories = _availableCategories(assets);
+          final dailyCostTopAssets = _filterDailyCostTopAssets(assets);
 
           return Center(
             child: ConstrainedBox(
@@ -61,7 +66,30 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                     ),
                     const SizedBox(height: 24),
                     AnalysisDailyCostTopCard(
-                      assets: analysis.dailyCostTopAssets,
+                      assets: dailyCostTopAssets,
+                      categories: availableCategories,
+                      selectedStatuses: _dailyCostStatusFilters,
+                      selectedCategories: _dailyCostCategoryFilters,
+                      onFiltersChanged:
+                          ({
+                            required Set<int> statuses,
+                            required Set<String> categories,
+                          }) {
+                            setState(() {
+                              _dailyCostStatusFilters
+                                ..clear()
+                                ..addAll(statuses);
+                              _dailyCostCategoryFilters
+                                ..clear()
+                                ..addAll(categories);
+                            });
+                          },
+                      onClearFilters: () {
+                        setState(() {
+                          _dailyCostStatusFilters.clear();
+                          _dailyCostCategoryFilters.clear();
+                        });
+                      },
                     ),
                     const SizedBox(height: 24),
                     AnalysisOverviewCard(
@@ -75,6 +103,20 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           );
         },
       ),
+    );
+  }
+
+  List<String> _availableCategories(List<Asset> assets) {
+    final categories = assets.map((asset) => asset.category).toSet().toList()
+      ..sort();
+    return categories;
+  }
+
+  List<Asset> _filterDailyCostTopAssets(List<Asset> assets) {
+    return AssetAnalysisService.dailyCostTopAssets(
+      assets,
+      statusFilters: _dailyCostStatusFilters,
+      categoryFilters: _dailyCostCategoryFilters,
     );
   }
 }

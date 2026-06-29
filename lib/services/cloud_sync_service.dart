@@ -11,7 +11,9 @@ class CloudSyncService {
   String? get userEmail => _client.auth.currentUser?.email;
 
   /// 上传本地数据到云端（智能合并，减少数据丢失风险）
-  Future<(int inserted, int updated, int deleted)> syncUp(List<Asset> assets) async {
+  Future<(int inserted, int updated, int deleted)> syncUp(
+    List<Asset> assets,
+  ) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('未登录');
 
@@ -23,7 +25,9 @@ class CloudSyncService {
         .select('id')
         .eq('user_id', userId);
 
-    final cloudIds = (cloudResponse as List).map((m) => m['id'] as String).toSet();
+    final cloudIds = (cloudResponse as List)
+        .map((m) => m['id'] as String)
+        .toSet();
     final localIds = assets.map((a) => a.id).toSet();
 
     int inserted = 0, updated = 0, deletedCount = 0;
@@ -31,7 +35,11 @@ class CloudSyncService {
     // 云端有、本地没有 → 删除
     final toDelete = cloudIds.difference(localIds);
     if (toDelete.isNotEmpty) {
-      await _client.from('assets').delete().eq('user_id', userId).inFilter('id', toDelete.toList());
+      await _client
+          .from('assets')
+          .delete()
+          .eq('user_id', userId)
+          .inFilter('id', toDelete.toList());
       deletedCount = toDelete.length;
     }
 

@@ -110,10 +110,10 @@ class SettingsScreen extends StatelessWidget {
 
               // 关于
               _buildSectionHeader('关于'),
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('版本'),
-                subtitle: const Text('1.5.2'),
+              const ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('版本'),
+                subtitle: Text('1.5.2'),
               ),
               const Divider(height: 1),
 

@@ -51,7 +51,10 @@ class _MainTabScreenState extends State<MainTabScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       extendBody: true, // 让内容滚到底部栏下方形成悬浮穿透效果
       body: IndexedStack(index: _selectedIndex, children: _pages),
       bottomNavigationBar: _buildFloatingDock(),

@@ -10,6 +10,12 @@ String formatAnalysisCurrency(double? amount) {
   return '¥${amount.toStringAsFixed(2)}';
 }
 
+typedef AnalysisTopFiltersChanged =
+    void Function({
+      required Set<int> statuses,
+      required Set<String> categories,
+    });
+
 class AnalysisStatusDistributionCard extends StatelessWidget {
   final AssetStatusDistribution status;
 
@@ -303,8 +309,27 @@ class _TotalValueText extends StatelessWidget {
 
 class AnalysisDailyCostTopCard extends StatelessWidget {
   final List<Asset> assets;
+  final List<String> categories;
+  final Set<int> selectedStatuses;
+  final Set<String> selectedCategories;
+  final AnalysisTopFiltersChanged onFiltersChanged;
+  final VoidCallback onClearFilters;
 
-  const AnalysisDailyCostTopCard({super.key, required this.assets});
+  const AnalysisDailyCostTopCard({
+    super.key,
+    required this.assets,
+    required this.categories,
+    required this.selectedStatuses,
+    required this.selectedCategories,
+    required this.onFiltersChanged,
+    required this.onClearFilters,
+  });
+
+  bool get _hasActiveFilters =>
+      selectedStatuses.isNotEmpty || selectedCategories.isNotEmpty;
+
+  int get _activeFilterCount =>
+      selectedStatuses.length + selectedCategories.length;
 
   @override
   Widget build(BuildContext context) {
@@ -316,13 +341,43 @@ class AnalysisDailyCostTopCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '日均消费 TOP 10',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '日均消费 TOP 10',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                if (_hasActiveFilters)
+                  TextButton(
+                    onPressed: onClearFilters,
+                    child: const Text('清除'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: () => _openFilterSheet(context),
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: Text(
+                    _hasActiveFilters ? '筛选 $_activeFilterCount' : '筛选',
+                  ),
+                ),
+              ],
             ),
+            if (_hasActiveFilters) ...[
+              const SizedBox(height: 8),
+              Text(
+                _filterSummary,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
             const SizedBox(height: 16),
             if (assets.isEmpty)
-              const Center(child: Text('暂无数据'))
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Text(_hasActiveFilters ? '当前筛选下暂无数据' : '暂无数据'),
+                ),
+              )
             else
               ListView.separated(
                 shrinkWrap: true,
@@ -367,6 +422,199 @@ class AnalysisDailyCostTopCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  String get _filterSummary {
+    final parts = <String>[];
+    if (selectedStatuses.isNotEmpty) {
+      parts.add('状态：${selectedStatuses.map(_statusLabel).join('、')}');
+    }
+    if (selectedCategories.isNotEmpty) {
+      parts.add('分类：${selectedCategories.join('、')}');
+    }
+    return parts.join('；');
+  }
+
+  static String _statusLabel(int value) {
+    switch (value) {
+      case 0:
+        return '服役中';
+      case 1:
+        return '已退役';
+      case 2:
+        return '已卖出';
+      default:
+        return '未知';
+    }
+  }
+
+  void _openFilterSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _AnalysisTopFilterSheet(
+        categories: categories,
+        initialStatuses: selectedStatuses,
+        initialCategories: selectedCategories,
+        onApply: onFiltersChanged,
+      ),
+    );
+  }
+}
+
+class _AnalysisTopFilterSheet extends StatefulWidget {
+  final List<String> categories;
+  final Set<int> initialStatuses;
+  final Set<String> initialCategories;
+  final AnalysisTopFiltersChanged onApply;
+
+  const _AnalysisTopFilterSheet({
+    required this.categories,
+    required this.initialStatuses,
+    required this.initialCategories,
+    required this.onApply,
+  });
+
+  @override
+  State<_AnalysisTopFilterSheet> createState() =>
+      _AnalysisTopFilterSheetState();
+}
+
+class _AnalysisTopFilterSheetState extends State<_AnalysisTopFilterSheet> {
+  late final Set<int> _selectedStatuses;
+  late final Set<String> _selectedCategories;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedStatuses = Set<int>.of(widget.initialStatuses);
+    _selectedCategories = Set<String>.of(widget.initialCategories);
+  }
+
+  bool get _hasSelections =>
+      _selectedStatuses.isNotEmpty || _selectedCategories.isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '筛选日均消费 TOP 10',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '状态筛选',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _statusChip('服役中', 0),
+                _statusChip('已退役', 1),
+                _statusChip('已卖出', 2),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '分类筛选',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            if (widget.categories.isEmpty)
+              Text('暂无分类', style: TextStyle(color: Colors.grey[600]))
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: widget.categories.map(_categoryChip).toList(),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: _hasSelections
+                      ? () {
+                          setState(() {
+                            _selectedStatuses.clear();
+                            _selectedCategories.clear();
+                          });
+                        }
+                      : null,
+                  child: const Text('重置'),
+                ),
+                const Spacer(),
+                FilledButton(
+                  onPressed: () {
+                    widget.onApply(
+                      statuses: Set<int>.of(_selectedStatuses),
+                      categories: Set<String>.of(_selectedCategories),
+                    );
+                    Navigator.pop(context);
+                  },
+                  child: const Text('完成'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  FilterChip _statusChip(String label, int value) {
+    return FilterChip(
+      label: Text(label),
+      selected: _selectedStatuses.contains(value),
+      onSelected: (selected) {
+        setState(() {
+          if (selected) {
+            _selectedStatuses.add(value);
+          } else {
+            _selectedStatuses.remove(value);
+          }
+        });
+      },
+    );
+  }
+
+  FilterChip _categoryChip(String category) {
+    return FilterChip(
+      label: Text(category),
+      selected: _selectedCategories.contains(category),
+      onSelected: (selected) {
+        setState(() {
+          if (selected) {
+            _selectedCategories.add(category);
+          } else {
+            _selectedCategories.remove(category);
+          }
+        });
+      },
     );
   }
 }
@@ -438,16 +686,23 @@ class _OverviewRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+          SizedBox(
+            width: 88,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+          ),
+          const SizedBox(width: 12),
           Flexible(
             child: Text(
               value,
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               textAlign: TextAlign.end,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              softWrap: true,
             ),
           ),
         ],

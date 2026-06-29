@@ -6,7 +6,6 @@ import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import '../models/asset.dart';
 import '../models/asset_category.dart';
-import '../models/check_session.dart';
 import 'local_db_schema.dart';
 
 /// 本地数据库服务类 V2.0 - 单例模式
@@ -285,113 +284,6 @@ class LocalDbService {
       where: 'category = ?',
       whereArgs: [normalizedCategory],
     );
-  }
-
-  // === 检查任务 CRUD ===
-
-  Future<CheckSession> insertCheckSession(CheckSession session) async {
-    final db = this.db;
-    await db.insert('check_sessions', session.toMap());
-    return session;
-  }
-
-  Future<List<CheckSession>> getAllCheckSessions() async {
-    final db = this.db;
-    final maps = await db.query('check_sessions', orderBy: 'created_at DESC');
-    return maps.map((m) => CheckSession.fromMap(m)).toList();
-  }
-
-  Future<CheckSession?> getCheckSession(String id) async {
-    final db = this.db;
-    final maps = await db.query(
-      'check_sessions',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (maps.isEmpty) return null;
-    return CheckSession.fromMap(maps.first);
-  }
-
-  Future<void> updateCheckSessionStatus(String id, int status) async {
-    final db = this.db;
-    await db.update(
-      'check_sessions',
-      {'status': status},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> updateCheckSessionName(String id, String name) async {
-    final db = this.db;
-    await db.update(
-      'check_sessions',
-      {'name': name},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> deleteCheckSession(String id) async {
-    final db = this.db;
-    await db.delete('check_items', where: 'session_id = ?', whereArgs: [id]);
-    await db.delete('check_sessions', where: 'id = ?', whereArgs: [id]);
-  }
-
-  // === 检查项 CRUD ===
-
-  Future<CheckItem> insertCheckItem(CheckItem item) async {
-    final db = this.db;
-    await db.insert('check_items', item.toMap());
-    return item;
-  }
-
-  Future<List<CheckItem>> getCheckItems(String sessionId) async {
-    final db = this.db;
-    final maps = await db.query(
-      'check_items',
-      where: 'session_id = ?',
-      whereArgs: [sessionId],
-    );
-    return maps.map((m) => CheckItem.fromMap(m)).toList();
-  }
-
-  Future<void> confirmCheckItem(String id) async {
-    final db = this.db;
-    await db.update(
-      'check_items',
-      {'confirmed_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> deleteCheckItem(String id) async {
-    final db = this.db;
-    await db.delete('check_items', where: 'id = ?', whereArgs: [id]);
-  }
-
-  /// 检查项导出为 JSON
-  Future<Map<String, dynamic>> exportCheckSession(String sessionId) async {
-    final session = await getCheckSession(sessionId);
-    if (session == null) throw Exception('检查任务不存在');
-    final items = await getCheckItems(sessionId);
-    return {
-      'session': session.toMap(),
-      'items': items.map((i) => i.toMap()).toList(),
-    };
-  }
-
-  /// 从 JSON 导入检查项
-  Future<void> importCheckSession(Map<String, dynamic> data) async {
-    final session = CheckSession.fromMap(data['session']);
-    final items = (data['items'] as List)
-        .map((i) => CheckItem.fromMap(i))
-        .toList();
-    await insertCheckSession(session);
-    for (final item in items) {
-      await insertCheckItem(item);
-    }
   }
 
   /// 关闭数据库连接

@@ -64,8 +64,9 @@ class AssetFormSubmissionService {
   const AssetFormSubmissionService._();
 
   static Asset buildAsset(AssetFormSubmission submission) {
-    final price = double.tryParse(submission.purchasePriceText);
-    if (price == null || price <= 0) {
+    final priceText = submission.purchasePriceText.trim();
+    final price = priceText.isEmpty ? 0.0 : double.tryParse(priceText);
+    if (price == null || price < 0) {
       throw const AssetFormSubmissionException('请输入有效的购入价格');
     }
 

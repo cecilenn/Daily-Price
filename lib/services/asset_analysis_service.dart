@@ -6,7 +6,6 @@ class AssetAnalysisService {
   static AssetAnalysis calculate(List<Asset> assets) {
     final status = AssetStatusDistribution.fromAssets(assets);
     final includedForTotal = assets.where((a) => a.excludeFromTotal == 0);
-    final includedForDaily = assets.where((a) => a.excludeFromDaily == 0);
 
     final categories = <String, ({int count, double value})>{};
     for (final asset in includedForTotal) {
@@ -35,17 +34,36 @@ class AssetAnalysisService {
       (sum, item) => sum + item.value,
     );
 
-    final dailyCostTopAssets =
-        includedForDaily.where((a) => a.dailyCost > 0).toList()
-          ..sort((a, b) => b.dailyCost.compareTo(a.dailyCost));
-
     return AssetAnalysis(
       status: status,
       categoryBreakdown: categoryBreakdown,
       totalCategoryValue: totalCategoryValue,
-      dailyCostTopAssets: dailyCostTopAssets.take(10).toList(),
+      dailyCostTopAssets: dailyCostTopAssets(assets),
       overview: AssetOverview.fromAssets(assets),
     );
+  }
+
+  static List<Asset> dailyCostTopAssets(
+    List<Asset> assets, {
+    Set<int> statusFilters = const {},
+    Set<String> categoryFilters = const {},
+    int limit = 10,
+  }) {
+    final filtered = assets.where((asset) {
+      if (asset.excludeFromDaily != 0 || asset.dailyCost <= 0) {
+        return false;
+      }
+      if (statusFilters.isNotEmpty && !statusFilters.contains(asset.status)) {
+        return false;
+      }
+      if (categoryFilters.isNotEmpty &&
+          !categoryFilters.contains(asset.category)) {
+        return false;
+      }
+      return true;
+    }).toList()..sort((a, b) => b.dailyCost.compareTo(a.dailyCost));
+
+    return filtered.take(limit).toList();
   }
 }
 

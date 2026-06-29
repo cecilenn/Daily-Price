@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/app_provider.dart';
 import 'providers/asset_provider.dart';
-import 'providers/check_provider.dart';
-import 'features/inspection/providers/inspection_provider.dart';
 import 'screens/main_tab_screen.dart';
 import 'services/local_db_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: SystemUiOverlay.values,
+  );
 
   // 初始化 Supabase
   await Supabase.initialize(
@@ -25,8 +28,6 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => AppProvider()),
         ChangeNotifierProvider(create: (_) => AssetProvider()..loadAssets()),
-        ChangeNotifierProvider(create: (_) => CheckProvider()..loadSessions()),
-        ChangeNotifierProvider(create: (_) => InspectionProvider()..loadSessions()),
       ],
       child: const DailyPriceApp(),
     ),
@@ -41,6 +42,59 @@ class DailyPriceApp extends StatefulWidget {
 }
 
 class _DailyPriceAppState extends State<DailyPriceApp> {
+  static const MethodChannel _systemBarsChannel = MethodChannel(
+    'daily_price/system_bars',
+  );
+
+  SystemUiOverlayStyle _systemUiStyleFor(ThemeData theme) {
+    final topSurfaceColor =
+        theme.appBarTheme.backgroundColor ?? theme.scaffoldBackgroundColor;
+    final topTextColor =
+        theme.appBarTheme.foregroundColor ?? theme.colorScheme.onSurface;
+    final statusIconBrightness = ThemeData.estimateBrightnessForColor(
+      topTextColor,
+    );
+    final navigationBarColor = theme.scaffoldBackgroundColor;
+    final navigationIconBrightness = ThemeData.estimateBrightnessForColor(
+      theme.colorScheme.onSurface,
+    );
+
+    return SystemUiOverlayStyle(
+      statusBarColor: topSurfaceColor,
+      statusBarIconBrightness: statusIconBrightness,
+      statusBarBrightness: statusIconBrightness == Brightness.light
+          ? Brightness.dark
+          : Brightness.light,
+      systemNavigationBarColor: navigationBarColor,
+      systemNavigationBarIconBrightness: navigationIconBrightness,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarContrastEnforced: false,
+    );
+  }
+
+  void _applySystemUiStyle(SystemUiOverlayStyle style) {
+    SystemChrome.setSystemUIOverlayStyle(style);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+
+    final statusBarColor = style.statusBarColor;
+    final navigationBarColor = style.systemNavigationBarColor;
+    _systemBarsChannel
+        .invokeMethod<void>('setSystemBars', {
+          if (statusBarColor != null)
+            'statusBarColor': statusBarColor.toARGB32(),
+          if (navigationBarColor != null)
+            'navigationBarColor': navigationBarColor.toARGB32(),
+          'darkStatusBarIcons':
+              style.statusBarIconBrightness == Brightness.dark,
+          'darkNavigationBarIcons':
+              style.systemNavigationBarIconBrightness == Brightness.dark,
+        })
+        .catchError((_) {});
+  }
+
   /// 获取主题数据
   ThemeData _getThemeData(AppTheme theme, AppProvider provider) {
     switch (theme) {
@@ -52,7 +106,12 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
             seedColor: const Color(0xFF2196F3),
             brightness: Brightness.dark,
           ),
-          appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+            backgroundColor: Color(0xFF101418),
+            foregroundColor: Colors.white,
+          ),
           cardTheme: CardThemeData(
             elevation: 2,
             shape: RoundedRectangleBorder(
@@ -280,11 +339,24 @@ class _DailyPriceAppState extends State<DailyPriceApp> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, appProvider, child) {
-        return MaterialApp(
-          title: '个人资产管理',
-          debugShowCheckedModeBanner: false,
-          theme: _getThemeData(appProvider.theme, appProvider),
-          home: const MainTabScreen(),
+        final theme = _getThemeData(appProvider.theme, appProvider);
+        final systemUiStyle = _systemUiStyleFor(theme);
+        final themedWithSystemBars = theme.copyWith(
+          appBarTheme: theme.appBarTheme.copyWith(
+            systemOverlayStyle: systemUiStyle,
+          ),
+        );
+
+        _applySystemUiStyle(systemUiStyle);
+
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: systemUiStyle,
+          child: MaterialApp(
+            title: '个人资产管理',
+            debugShowCheckedModeBanner: false,
+            theme: themedWithSystemBars,
+            home: const MainTabScreen(),
+          ),
         );
       },
     );

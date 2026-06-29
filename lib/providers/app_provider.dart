@@ -20,7 +20,7 @@ enum DateFormatStyle {
 
 /// 应用状态提供者
 class AppProvider with ChangeNotifier {
-  AppTheme _theme = AppTheme.light;
+  AppTheme _theme = AppTheme.dark;
   DateFormatStyle _dateFormatStyle = DateFormatStyle.combined;
   DateTime? _lastSyncTime;
   final bool _isLoading = false;

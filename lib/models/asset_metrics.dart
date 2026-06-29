@@ -15,7 +15,8 @@ extension AssetMetrics on Asset {
     if (renewals.isNotEmpty) return renewals.last.expireDate;
     // 无续费记录时，用购买日期 + 预计寿命天数 计算
     if (expectedLifespanDays != null) {
-      return purchaseDate + Duration(days: expectedLifespanDays!).inMilliseconds;
+      return purchaseDate +
+          Duration(days: expectedLifespanDays!).inMilliseconds;
     }
     return null;
   }

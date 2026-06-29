@@ -206,8 +206,8 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: const Icon(Icons.cloud_upload),
-                              title: const Text('同步到云端'),
-                              subtitle: const Text('将本地数据覆盖到云端'),
+                              title: const Text('上传覆盖云端'),
+                              subtitle: const Text('用本地资产完整覆盖云端资产'),
                               onTap: () async {
                                 final assets = await LocalDbService()
                                     .getAllAssets();
@@ -215,9 +215,9 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                                 final confirm = await showDialog<bool>(
                                   context: context,
                                   builder: (ctx) => AlertDialog(
-                                    title: const Text('同步到云端'),
+                                    title: const Text('上传覆盖云端'),
                                     content: Text(
-                                      '将本地 ${assets.length} 条资产上传到云端，覆盖云端数据？',
+                                      '将用本地 ${assets.length} 条资产覆盖云端资产。云端多余资产会被删除，确定继续？',
                                     ),
                                     actions: [
                                       TextButton(
@@ -228,7 +228,7 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                                       TextButton(
                                         onPressed: () =>
                                             Navigator.pop(ctx, true),
-                                        child: const Text('确认'),
+                                        child: const Text('确认覆盖'),
                                       ),
                                     ],
                                   ),
@@ -256,14 +256,16 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: const Icon(Icons.cloud_download),
-                              title: const Text('同步到本地'),
-                              subtitle: const Text('将云端数据覆盖到本地'),
+                              title: const Text('下载覆盖本地'),
+                              subtitle: const Text('用云端资产完整覆盖本地资产'),
                               onTap: () async {
                                 final confirm = await showDialog<bool>(
                                   context: context,
                                   builder: (ctx) => AlertDialog(
-                                    title: const Text('同步到本地'),
-                                    content: const Text('将云端数据下载到本地，覆盖本地所有资产？'),
+                                    title: const Text('下载覆盖本地'),
+                                    content: const Text(
+                                      '将用云端资产覆盖本地所有资产。本地未上传的数据会丢失，确定继续？',
+                                    ),
                                     actions: [
                                       TextButton(
                                         onPressed: () =>
@@ -273,7 +275,7 @@ class _DataSettingsScreenState extends State<DataSettingsScreen> {
                                       TextButton(
                                         onPressed: () =>
                                             Navigator.pop(ctx, true),
-                                        child: const Text('确认'),
+                                        child: const Text('确认覆盖'),
                                       ),
                                     ],
                                   ),

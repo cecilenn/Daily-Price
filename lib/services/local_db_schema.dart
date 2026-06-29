@@ -36,7 +36,6 @@ class LocalDbSchema {
         replacements TEXT DEFAULT '[]'
       )
     ''');
-    await _createCheckTables(db);
   }
 
   static Future<void> upgrade(
@@ -78,11 +77,6 @@ class LocalDbSchema {
       log('========== [LocalDb] V7 续费记录字段升级完成 ==========');
     }
 
-    if (oldVersion < 8) {
-      await _createCheckTables(db);
-      log('========== [LocalDb] V8 检查功能表创建完成 ==========');
-    }
-
     if (oldVersion < 9) {
       final columnNames = await _assetColumnNames(db);
 
@@ -100,27 +94,6 @@ class LocalDbSchema {
 
       log('========== [LocalDb] V9 耗材追踪字段升级完成 ==========');
     }
-  }
-
-  static Future<void> _createCheckTables(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS check_sessions (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        status INTEGER DEFAULT 0
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS check_items (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        asset_id TEXT NOT NULL,
-        asset_snapshot TEXT NOT NULL,
-        confirmed_at INTEGER,
-        FOREIGN KEY (session_id) REFERENCES check_sessions(id) ON DELETE CASCADE
-      )
-    ''');
   }
 
   static Future<void> _addAvatarV3Fields(Database db) async {

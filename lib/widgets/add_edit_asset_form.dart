@@ -138,16 +138,18 @@ class AddEditAssetForm extends StatelessWidget {
           TextFormField(
             controller: priceController,
             decoration: const InputDecoration(
-              labelText: '购入价格 *',
-              hintText: '例如：4499',
+              labelText: '购入价格（可选）',
+              hintText: '不填默认 0',
               prefixIcon: Icon(Icons.attach_money),
               prefixText: '¥ ',
               border: OutlineInputBorder(),
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             validator: (value) {
-              final price = double.tryParse(value ?? '');
-              if (price == null || price <= 0) {
+              final text = value?.trim() ?? '';
+              if (text.isEmpty) return null;
+              final price = double.tryParse(text);
+              if (price == null || price < 0) {
                 return '请输入有效的购入价格';
               }
               return null;

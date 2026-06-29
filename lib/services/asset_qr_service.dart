@@ -14,7 +14,12 @@ class ParsedAssetQr {
 
 class AssetQrService {
   static ParsedAssetQr parse(String qrData) {
-    final jsonData = jsonDecode(qrData) as Map<String, dynamic>;
+    final decoded = jsonDecode(qrData);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('资产二维码格式无效');
+    }
+
+    final jsonData = _normalizePayload(decoded);
 
     if (jsonData['assetName'] == null && jsonData['asset_name'] == null) {
       throw const FormatException('缺少资产名称字段');
@@ -81,6 +86,78 @@ class AssetQrService {
         avatarPath: null,
       ),
     );
+  }
+
+  static Map<String, dynamic> _normalizePayload(Map<String, dynamic> jsonData) {
+    if (jsonData['v'] != 2 || jsonData['t'] != 'asset') {
+      return jsonData;
+    }
+
+    final data = jsonData['d'];
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('资产二维码数据为空');
+    }
+
+    return {
+      'id': data['id'],
+      'assetName': data['n'],
+      'purchasePrice': data['p'],
+      'purchaseDate': data['pd'],
+      'expectedLifespanDays': data['life'],
+      'expireDate': data['exp'],
+      'status': data['st'],
+      'category': data['cat'],
+      'ownershipType': data['own'],
+      'tags': data['tags'],
+      'createdAt': data['created'],
+      'isPinned': data['pin'],
+      'excludeFromTotal': data['xTotal'],
+      'excludeFromDaily': data['xDaily'],
+      'soldPrice': data['soldP'],
+      'soldDate': data['soldD'],
+      'renewals': _normalizeRenewals(data['ren']),
+      'consumables': _normalizeConsumables(data['con']),
+      'replacements': _normalizeReplacements(data['rep']),
+    };
+  }
+
+  static List<Map<String, dynamic>>? _normalizeRenewals(dynamic records) {
+    if (records is! List) return null;
+    return records.whereType<Map<String, dynamic>>().map((record) {
+      return {
+        'id': record['id'],
+        'renewal_date': record['rd'],
+        'price': record['p'],
+        'duration_days': record['dur'],
+      };
+    }).toList();
+  }
+
+  static List<Map<String, dynamic>>? _normalizeConsumables(dynamic records) {
+    if (records is! List) return null;
+    return records.whereType<Map<String, dynamic>>().map((record) {
+      return {
+        'id': record['id'],
+        'name': record['n'],
+        'price': record['p'],
+        'cycle_days': record['cycle'],
+        'purchased_at': record['at'],
+        'updated_at': record['upd'],
+      };
+    }).toList();
+  }
+
+  static List<Map<String, dynamic>>? _normalizeReplacements(dynamic records) {
+    if (records is! List) return null;
+    return records.whereType<Map<String, dynamic>>().map((record) {
+      return {
+        'id': record['id'],
+        'consumable_name': record['n'],
+        'replaced_at': record['at'],
+        'price': record['p'],
+        'note': record['note'],
+      };
+    }).toList();
   }
 
   static List<T> _decodeJsonList<T>(
